@@ -207,13 +207,12 @@ def generate_dca_cues(script: fountain.Fountain, db_path: str = DATABASE) -> lis
                     dca_num = dca_assignments[character]
                     channel = character_channels.get(character, '')
 
-                    # Update this DCA's state (mute/clear)
+                    # Update this DCA's state (mute/clear both channels and labels)
                     if channel:
                         setattr(cue, f'dca{dca_num:02d}Channels', None)
                         current_dca_state['channels'][dca_num] = None
-                    else:
-                        setattr(cue, f'dca{dca_num:02d}Label', None)
-                        current_dca_state['labels'][dca_num] = None
+                    setattr(cue, f'dca{dca_num:02d}Label', None)
+                    current_dca_state['labels'][dca_num] = None
 
                     # Free up the DCA and remove from active
                     available_dcas.add(dca_num)
@@ -236,7 +235,9 @@ def generate_dca_cues(script: fountain.Fountain, db_path: str = DATABASE) -> lis
 
             # Process each character in this dialogue block
             for character in characters:
-                character = character.strip()
+                character = character.strip()[
+                    :12
+                ]  # TODO: Fix character name length handling
 
                 # Track character if not already active
                 if character not in active_mics:
@@ -312,6 +313,9 @@ def generate_dca_cues(script: fountain.Fountain, db_path: str = DATABASE) -> lis
                     if channel:
                         setattr(cue, f'dca{dca_num:02d}Channels', channel)
                         current_dca_state['channels'][dca_num] = channel
+                        # Also set label for ensembles (channels with commas) and individuals
+                        setattr(cue, f'dca{dca_num:02d}Label', character)
+                        current_dca_state['labels'][dca_num] = character
                     else:
                         setattr(cue, f'dca{dca_num:02d}Label', character)
                         current_dca_state['labels'][dca_num] = character
@@ -321,12 +325,12 @@ def generate_dca_cues(script: fountain.Fountain, db_path: str = DATABASE) -> lis
                     dca_num = dca_assignments[character]
                     channel = character_channels.get(character, '')
 
+                    # Clear both channels and labels when muting
                     if channel:
                         setattr(cue, f'dca{dca_num:02d}Channels', None)
                         current_dca_state['channels'][dca_num] = None
-                    else:
-                        setattr(cue, f'dca{dca_num:02d}Label', None)
-                        current_dca_state['labels'][dca_num] = None
+                    setattr(cue, f'dca{dca_num:02d}Label', None)
+                    current_dca_state['labels'][dca_num] = None
 
                     # Free up the DCA and remove from active
                     available_dcas.add(dca_num)
