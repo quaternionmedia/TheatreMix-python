@@ -1,6 +1,5 @@
-"""SQLModel models for QLab cue database schema."""
+"""SQLModel models for TheatreMix cue database schema."""
 
-from typing import Optional
 from sqlmodel import Field, SQLModel
 
 
