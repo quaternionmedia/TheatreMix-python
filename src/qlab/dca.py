@@ -7,7 +7,7 @@ from qlab.database_sqlmodel import CueDatabase
 
 # from rich import print
 
-DATABASE = 'mix/seuss10.tmix'
+DATABASE = 'mix/seuss.tmix'
 
 
 def open_script(
@@ -23,7 +23,9 @@ def split_characters(characters: str) -> list[str]:
     # Remove parenthesis
     characters = re.sub(r'\([^)]*\)', '', characters)
     # split the characters by '&'
-    return characters.split(' & ')
+    return [
+        c[:12] for c in characters.split(' & ')
+    ]  # TODO : Fix character name length handling
 
 
 def speaks_within(book, character, n: int = 7, skip_first: bool = False):
@@ -270,19 +272,24 @@ def generate_dca_cues(script: fountain.Fountain, db_path: str = DATABASE) -> lis
 
             # Create a single cue for all DCA changes in this block
             if characters_to_unmute or characters_to_mute:
-                # Build cue name
+                # Build cue name with +/- prefixes per character
                 unmute_names = (
-                    ', '.join(characters_to_unmute) if characters_to_unmute else ''
+                    ', '.join(f'+{char}' for char in characters_to_unmute)
+                    if characters_to_unmute
+                    else ''
                 )
-                mute_names = ', '.join(characters_to_mute) if characters_to_mute else ''
+                mute_names = (
+                    ', '.join(f'-{char}' for char in characters_to_mute)
+                    if characters_to_mute
+                    else ''
+                )
 
                 if unmute_names and mute_names:
-                    cue_name = f'p{page} +{unmute_names}+ -{mute_names}- "{get_line_preview_start(remaining_script, 30)}"'
+                    cue_name = f'p{page} {unmute_names} {mute_names}: "{get_line_preview_start(remaining_script, 30)}"'
                 elif unmute_names:
-                    cue_name = f'p{page} +{unmute_names}+ "{get_line_preview_start(remaining_script, 30)}"'
+                    cue_name = f'p{page} {unmute_names}: "{get_line_preview_start(remaining_script, 30)}"'
                 else:
-                    # For mute-only cues, use the current dialogue block's preview
-                    cue_name = f'p{page} -{mute_names}- "{get_line_preview_start(remaining_script, 30)}"'
+                    cue_name = f'p{page} {mute_names}: "{get_line_preview_start(remaining_script, 30)}"'
 
                 cue = Cue(
                     number=cue_number,
