@@ -23,12 +23,12 @@ def split_characters(characters: str) -> list[str]:
     # Remove parenthesis
     characters = re.sub(r'\([^)]*\)', '', characters)
     # split the characters by '&'
-    return [
-        c[:12] for c in characters.split(' & ')
-    ]  # TODO : Fix character name length handling
+    # If it contains lowercase letters (e.g., "Dr. Seuss"), keep as is
+    # Otherwise, title case each character name
+    return [c if re.search(r'[a-z]', c) else c.title() for c in characters.split(' & ')]
 
 
-def speaks_within(book, character, n: int = 7, skip_first: bool = False):
+def speaks_within(book, character, n: int = 7, skip_first: bool = False) -> bool:
     """Check if character speaks within next n dialogue blocks or before scene change.
 
     Args:
@@ -112,16 +112,18 @@ def get_character_channels(db_path: str = DATABASE) -> dict[str, str]:
         # Load characters from Profile table
         profiles = session.exec(select(Profile)).all()
         for profile in profiles:
-            character_channels[profile.name.upper()] = str(profile.channel)
+            character_channels[profile.name] = str(profile.channel)
         # Load ensemble groups and map to comma-separated channel lists
         ensembles = session.exec(select(Ensemble)).all()
         for ensemble in ensembles:
-            character_channels[ensemble.name.upper()] = ensemble.channels
+            character_channels[ensemble.name] = ensemble.channels
 
     return character_channels
 
 
-def generate_dca_cues(script: fountain.Fountain, db_path: str = DATABASE) -> list[Cue]:
+def generate_dca_cues(
+    script: fountain.Fountain, db_path: str = DATABASE, max_dialogues_ahead: int = 7
+) -> list[Cue]:
     """Generate the list of cues for DCA muting.
 
     This function parses a Fountain script and creates a list of Cue objects
@@ -266,7 +268,10 @@ def generate_dca_cues(script: fountain.Fountain, db_path: str = DATABASE) -> lis
                 # Check if this character speaks within the next 7 dialogue blocks
                 # Pass remaining script after current element
                 if not speaks_within(
-                    remaining_script, active_character, n=7, skip_first=False
+                    remaining_script,
+                    active_character,
+                    n=max_dialogues_ahead,
+                    skip_first=False,
                 ):
                     characters_to_mute.append(active_character)
 
