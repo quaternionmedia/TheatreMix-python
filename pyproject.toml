@@ -5,8 +5,19 @@ description = "TheatreMix functions for python"
 readme = "README.md"
 authors = [{ name = "Harpo", email = "harpo@harpo.me" }]
 requires-python = ">=3.10"
-dependencies = ["python-osc>=1.9.3", "sqlmodel>=0.0.27"]
+dependencies = [
+    "fountain>=0.1.0",
+    "python-osc>=1.9.3",
+    "sqlmodel>=0.0.27",
+]
 
 [build-system]
 requires = ["uv_build>=0.9.5,<0.10.0"]
 build-backend = "uv_build"
+[tool.uv.sources]
+fountain = { git = "https://github.com/quaternionmedia/fountain", branch = "deduplicate" }
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.1.0",
+]

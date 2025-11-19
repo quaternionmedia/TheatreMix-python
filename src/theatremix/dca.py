@@ -2,8 +2,8 @@ from sqlmodel import Session, select
 from fountain import fountain
 import re
 
-from qlab.models import Cue, Profile, Ensemble
-from qlab.database_sqlmodel import CueDatabase
+from .models import Cue, Profile, Ensemble
+from .db import CueDatabase
 
 # from rich import print
 
