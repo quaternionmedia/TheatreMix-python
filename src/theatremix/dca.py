@@ -132,9 +132,7 @@ def generate_dca_cues(
 
             # Process each character in this dialogue block
             for character in characters:
-                character = character.strip()[
-                    :12
-                ]  # TODO: Fix character name length handling
+                character = character.strip()
 
                 # Track character if not already active
                 if character not in active_mics:
