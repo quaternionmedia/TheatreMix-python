@@ -63,16 +63,6 @@ class Cue(SQLModel, table=True):
     colour: int | None = None
     scenePoints: str | None = None
 
-    # DCA 9-12 (added to match actual schema)
-    dca09Channels: str | None = None
-    dca09Label: str | None = None
-    dca10Channels: str | None = None
-    dca10Label: str | None = None
-    dca11Channels: str | None = None
-    dca11Label: str | None = None
-    dca12Channels: str | None = None
-    dca12Label: str | None = None
-
 
 class Profile(SQLModel, table=True):
     """Channel profiles for characters/actors."""

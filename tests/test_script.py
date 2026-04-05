@@ -35,25 +35,31 @@ class TestSpeaksWithin:
     def test_character_speaks_next(self, script_alice_bob_alice):
         elements = script_alice_bob_alice.elements
         alice_idx = next(
-            i for i, e in enumerate(elements) if e.type == ElementType.CHARACTER and e.name == 'ALICE'
+            i
+            for i, e in enumerate(elements)
+            if e.type == ElementType.CHARACTER and e.name == 'ALICE'
         )
-        remaining = elements[alice_idx + 1:]
+        remaining = elements[alice_idx + 1 :]
         assert speaks_within(remaining, 'Alice', n=7) is True
 
     def test_character_not_in_window(self, script_many_extras):
         elements = script_many_extras.elements
         alice_idx = next(
-            i for i, e in enumerate(elements) if e.type == ElementType.CHARACTER and e.name == 'ALICE'
+            i
+            for i, e in enumerate(elements)
+            if e.type == ElementType.CHARACTER and e.name == 'ALICE'
         )
-        remaining = elements[alice_idx + 1:]
+        remaining = elements[alice_idx + 1 :]
         assert speaks_within(remaining, 'Alice', n=7) is False
 
     def test_stops_at_scene_heading(self, script_alice_scene_change_alice):
         elements = script_alice_scene_change_alice.elements
         alice_idx = next(
-            i for i, e in enumerate(elements) if e.type == ElementType.CHARACTER and e.name == 'ALICE'
+            i
+            for i, e in enumerate(elements)
+            if e.type == ElementType.CHARACTER and e.name == 'ALICE'
         )
-        remaining = elements[alice_idx + 1:]
+        remaining = elements[alice_idx + 1 :]
         assert speaks_within(remaining, 'Alice', n=7) is False
 
     def test_skip_first(self, script_alice_bob):
@@ -88,7 +94,7 @@ class TestGetLinePreview:
         char_idx = next(
             i for i, e in enumerate(elements) if e.type == ElementType.CHARACTER
         )
-        result = get_line_preview_start(elements[char_idx + 1:])
+        result = get_line_preview_start(elements[char_idx + 1 :])
         assert result == 'Hello!'
 
     def test_start_truncates_long_line(self, script_long_dialogue):
@@ -96,7 +102,7 @@ class TestGetLinePreview:
         char_idx = next(
             i for i, e in enumerate(elements) if e.type == ElementType.CHARACTER
         )
-        result = get_line_preview_start(elements[char_idx + 1:], length=40)
+        result = get_line_preview_start(elements[char_idx + 1 :], length=40)
         assert result == 'A' * 40 + '...'
         assert len(result) == 43
 
@@ -109,11 +115,15 @@ class TestGetLinePreview:
         assert result == '...' + 'A' * 40
 
     def test_start_returns_none_if_no_dialogue(self, script_action_only):
-        action_elems = [e for e in script_action_only.elements if e.type == ElementType.ACTION]
+        action_elems = [
+            e for e in script_action_only.elements if e.type == ElementType.ACTION
+        ]
         result = get_line_preview_start(action_elems)
         assert result is None
 
     def test_end_returns_none_if_no_dialogue(self, script_action_only):
-        action_elems = [e for e in script_action_only.elements if e.type == ElementType.ACTION]
+        action_elems = [
+            e for e in script_action_only.elements if e.type == ElementType.ACTION
+        ]
         result = get_line_preview_end(action_elems)
         assert result is None

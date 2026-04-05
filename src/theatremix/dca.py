@@ -3,7 +3,7 @@ import re
 from screenplay_tools.screenplay import ElementType, Script, Section
 
 from .models import Cue
-from .db import CueDatabase
+from .db import TheatreMixDB
 from .script import (
     open_script,
     split_characters,
@@ -12,6 +12,32 @@ from .script import (
     get_line_preview_start,
     get_line_preview_end,
 )
+
+
+def _extract_page_number(element, script_notes: list) -> int | None:
+    """Extract a page number from an element's notes (standalone or inline).
+
+    Checks standalone NOTE elements directly, and also checks inline notes
+    referenced in any element's text_raw (e.g. dialogue with [[Page 15]] mid-text).
+
+    Returns the highest page number found, or None if no page note exists.
+    """
+    # Standalone note element
+    if element.type == ElementType.NOTE:
+        match = re.match(r'^Page (\d+)$', element.text)
+        if match:
+            return int(match.group(1))
+
+    # Inline notes: text_raw contains [[index]] references into script.notes
+    raw = getattr(element, 'text_raw', '') or ''
+    page = None
+    for ref in re.findall(r'\[\[(\d+)\]\]', raw):
+        idx = int(ref)
+        if idx < len(script_notes):
+            match = re.match(r'^Page (\d+)$', script_notes[idx].text)
+            if match:
+                page = int(match.group(1))
+    return page
 
 
 def generate_dca_cues(
@@ -54,10 +80,11 @@ def generate_dca_cues(
     }
 
     for i, element in enumerate(script.elements):
-        # Track page numbers from comments
-        if element.type == ElementType.NOTE:
-            if re.match(r'^Page \d+$', element.text):
-                page = int(re.search(r'\d+', element.text).group())
+        # Track page numbers from standalone notes and inline notes
+        found_page = _extract_page_number(element, script.notes)
+        if found_page is not None:
+            page = found_page
+            if element.type == ElementType.NOTE:
                 continue
 
         # Handle scene transitions - mute all active characters
@@ -274,6 +301,6 @@ if __name__ == '__main__':
     print(f"Generated {len(cues)} DCA cues\n")
     print(cues[:1])
 
-    with Session(CueDatabase(args.database).engine) as session:
+    with Session(TheatreMixDB(args.database).engine) as session:
         session.add_all(cues[:1])
         session.commit()

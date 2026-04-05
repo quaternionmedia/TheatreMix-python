@@ -9,29 +9,49 @@ class TestExtractPageNumber:
     def test_standalone_note_absorbed_into_element(self, script_page_absorbed):
         """Standalone [[Page N]] notes get absorbed as inline refs in adjacent elements."""
         assert any(n.text == 'Page 42' for n in script_page_absorbed.notes)
-        dialogue = next(e for e in script_page_absorbed.elements if e.type == ElementType.DIALOGUE)
+        dialogue = next(
+            e for e in script_page_absorbed.elements if e.type == ElementType.DIALOGUE
+        )
         assert _extract_page_number(dialogue, script_page_absorbed.notes) == 42
 
     def test_non_page_note_returns_none(self, script_non_page_note):
-        dialogue = next(e for e in script_non_page_note.elements if e.type == ElementType.DIALOGUE)
+        dialogue = next(
+            e for e in script_non_page_note.elements if e.type == ElementType.DIALOGUE
+        )
         assert _extract_page_number(dialogue, script_non_page_note.notes) is None
 
     def test_inline_note_in_dialogue(self, script_inline_page_in_dialogue):
-        dialogue_elem = next(e for e in script_inline_page_in_dialogue.elements if e.type == ElementType.DIALOGUE)
-        result = _extract_page_number(dialogue_elem, script_inline_page_in_dialogue.notes)
+        dialogue_elem = next(
+            e
+            for e in script_inline_page_in_dialogue.elements
+            if e.type == ElementType.DIALOGUE
+        )
+        result = _extract_page_number(
+            dialogue_elem, script_inline_page_in_dialogue.notes
+        )
         assert result == 10
 
     def test_inline_note_in_action(self, script_inline_page_in_action):
-        action_elem = next(e for e in script_inline_page_in_action.elements if e.type == ElementType.ACTION)
+        action_elem = next(
+            e
+            for e in script_inline_page_in_action.elements
+            if e.type == ElementType.ACTION
+        )
         result = _extract_page_number(action_elem, script_inline_page_in_action.notes)
         assert result == 5
 
     def test_element_without_notes_returns_none(self, script_alice_only):
-        dialogue_elem = next(e for e in script_alice_only.elements if e.type == ElementType.DIALOGUE)
+        dialogue_elem = next(
+            e for e in script_alice_only.elements if e.type == ElementType.DIALOGUE
+        )
         assert _extract_page_number(dialogue_elem, script_alice_only.notes) is None
 
     def test_multiple_inline_page_notes_returns_last(self, script_multiple_page_notes):
-        dialogue_elem = next(e for e in script_multiple_page_notes.elements if e.type == ElementType.DIALOGUE)
+        dialogue_elem = next(
+            e
+            for e in script_multiple_page_notes.elements
+            if e.type == ElementType.DIALOGUE
+        )
         result = _extract_page_number(dialogue_elem, script_multiple_page_notes.notes)
         assert result == 4
 
@@ -78,7 +98,9 @@ class TestGenerateDcaCues:
         cue_names = [c.name for c in cues]
         assert any('Scene Change' in (n or '') for n in cue_names)
 
-    def test_character_not_muted_if_speaks_first_in_new_scene(self, script_alice_scene_change_alice):
+    def test_character_not_muted_if_speaks_first_in_new_scene(
+        self, script_alice_scene_change_alice
+    ):
         cues = self._generate(script_alice_scene_change_alice)
         cue_names = [c.name for c in cues]
         assert not any('Scene Change' in (n or '') for n in cue_names)

@@ -69,7 +69,7 @@ DEFAULT_CONFIG = {
 }
 
 
-class CueDatabase:
+class TheatreMixDB:
     """SQLModel-based database manager for theatre cues."""
 
     def __init__(

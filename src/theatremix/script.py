@@ -5,7 +5,7 @@ from screenplay_tools.screenplay import ElementType, Script
 
 
 from .models import Cue, Profile, Ensemble
-from .db import CueDatabase
+from .db import TheatreMixDB
 
 # from rich import print
 
@@ -110,7 +110,7 @@ def get_character_channels(db_path: str = DATABASE) -> dict[str, str]:
     Returns:
         Dictionary mapping character names to channel numbers (as strings)
     """
-    db = CueDatabase(db_path, create_schema=False, init_config=False)
+    db = TheatreMixDB(db_path, create_schema=False, init_config=False)
     character_channels = {}
 
     with Session(db.engine) as session:
