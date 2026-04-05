@@ -1,6 +1,8 @@
 from sqlmodel import Session, select
-from fountain import fountain
 import re
+from screenplay_tools.fountain.parser import Parser
+from screenplay_tools.screenplay import ElementType, Script
+
 
 from .models import Cue, Profile, Ensemble
 from .db import CueDatabase
@@ -12,10 +14,13 @@ DATABASE = 'mix/seuss.tmix'
 
 def open_script(
     file_path: str,
-) -> fountain.Fountain:
+) -> Script:
     """Open and parse a Fountain script from a file path."""
     with open(file_path, 'r') as file:
-        return fountain.Fountain(file.read())
+        parser = Parser()
+        parser.add_text(file.read())
+        parser.finalize()
+        return parser.script
 
 
 def split_characters(characters: str) -> list[str]:
@@ -45,13 +50,13 @@ def speaks_within(book, character, n: int = 7, skip_first: bool = False) -> bool
     for i, element in enumerate(book):
         if dialogues >= n:
             return False
-        if element.element_type == 'Scene Heading':
+        if element.type == ElementType.HEADING:
             return False
-        if element.element_type == 'Character':
+        if element.type == ElementType.CHARACTER:
             if not first_skipped:
                 first_skipped = True
                 continue
-            characters = split_characters(element.element_text)
+            characters = split_characters(element.name)
             if character in characters:
                 return True
             dialogues += 1
@@ -61,8 +66,8 @@ def speaks_within(book, character, n: int = 7, skip_first: bool = False) -> bool
 def get_characters(script):
     characters = set()
     for element in script.elements:
-        if element.element_type == 'Character':
-            chars = split_characters(element.element_text)
+        if element.type == ElementType.CHARACTER:
+            chars = split_characters(element.name)
             for char in chars:
                 characters.add(char.strip())
     characters = sorted(list(characters))
@@ -73,8 +78,8 @@ def get_line_preview_start(script, length=40):
     """Get a starting preview of the dialogue line following the character element"""
     # look for the next Dialogue element
     for i in range(len(script)):
-        if script[i].element_type == 'Dialogue':
-            line = script[i].element_text
+        if script[i].type == ElementType.DIALOGUE:
+            line = script[i].text
             if len(line) > length:
                 return line[:length] + '...'
             else:
@@ -85,8 +90,8 @@ def get_line_preview_end(script, length=40):
     """Get an ending preview of the dialogue line following the character element"""
     # look for the next Dialogue element from the end
     for i in range(len(script) - 1, -1, -1):
-        if script[i].element_type == 'Dialogue':
-            line = script[i].element_text
+        if script[i].type == ElementType.DIALOGUE:
+            line = script[i].text
             if len(line) > length:
                 return '...' + line[-length:]
             else:

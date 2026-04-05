@@ -1,13 +1,21 @@
 from sqlmodel import Session
-from fountain import fountain
 import re
+from screenplay_tools.screenplay import ElementType, Script, Section
 
 from .models import Cue
 from .db import CueDatabase
+from .script import (
+    open_script,
+    split_characters,
+    speaks_within,
+    get_character_channels,
+    get_line_preview_start,
+    get_line_preview_end,
+)
 
 
 def generate_dca_cues(
-    script: fountain.Fountain, db_path: str, max_dialogues_ahead: int = 7
+    script: Script, db_path: str, max_dialogues_ahead: int = 7
 ) -> list[Cue]:
     """Generate the list of cues for DCA muting.
 
@@ -47,22 +55,22 @@ def generate_dca_cues(
 
     for i, element in enumerate(script.elements):
         # Track page numbers from comments
-        if element.element_type == 'Comment':
-            if re.match(r'^Page \d+$', element.element_text):
-                page = int(re.search(r'\d+', element.element_text).group())
+        if element.type == ElementType.NOTE:
+            if re.match(r'^Page \d+$', element.text):
+                page = int(re.search(r'\d+', element.text).group())
                 continue
 
         # Handle scene transitions - mute all active characters
-        if element.element_type == 'Scene Heading':
+        if element.type == ElementType.HEADING:
             # Check if any current active character speaks first in this scene
             first_speakers = set()
             remaining_script = script.elements[i + 1 :]
             for future_elem in remaining_script:
-                if future_elem.element_type == 'Character':
-                    chars = split_characters(future_elem.element_text)
+                if future_elem.type == ElementType.CHARACTER:
+                    chars = split_characters(future_elem.name)
                     first_speakers.update(char.strip() for char in chars)
                     break
-                elif future_elem.element_type == 'Scene Heading':
+                elif future_elem.type == ElementType.HEADING:
                     break
 
             # Mute characters who won't speak first in new scene
@@ -114,8 +122,8 @@ def generate_dca_cues(
             continue
 
         # Handle character dialogue
-        if element.element_type == 'Character':
-            characters = split_characters(element.element_text)
+        if element.type == ElementType.CHARACTER:
+            characters = split_characters(element.name)
             remaining_script = script.elements[i + 1 :]
 
             # Collect all DCA changes for this dialogue block
