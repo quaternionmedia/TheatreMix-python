@@ -110,6 +110,10 @@ def generate_dca_cues(
                     point=0,
                     name=f"p{page} -{mute_names}- Scene Change - {get_line_preview_end(script.elements[:i], 30)}",
                 )
+                cue._script_line = (
+                    getattr(script, 'element_source_lines', None)
+                    and script.element_source_lines[i]
+                )
 
                 # Copy all current DCA states to this cue
                 for dca_i in range(1, 13):
@@ -218,6 +222,10 @@ def generate_dca_cues(
                     number=cue_number,
                     point=0,
                     name=cue_name,
+                )
+                cue._script_line = (
+                    getattr(script, 'element_source_lines', None)
+                    and script.element_source_lines[i]
                 )
 
                 # Copy all current DCA states to this cue

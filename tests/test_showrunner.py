@@ -295,6 +295,7 @@ class TestCmdGenerateDca:
             assert len(cues) == result['cues_created']
             assert all(c.layer == 'Sound' for c in cues)
             assert all(c.cue_type == 'DCA' for c in cues)
+            assert all(c.script_line is not None for c in cues)
 
     def test_invalid_layer_returns_error(self, setup_plugin):
         result = plugin.showrunner_command(

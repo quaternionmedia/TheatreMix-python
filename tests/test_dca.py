@@ -146,3 +146,10 @@ class TestGenerateDcaCues:
         cues = self._generate(script_alice_bob_charlie)
         numbers = [c.number for c in cues]
         assert numbers == list(range(1, len(cues) + 1))
+
+    def test_script_line_set_on_cues(self, script_alice_bob_alice):
+        cues = self._generate(script_alice_bob_alice)
+        assert all(hasattr(c, '_script_line') for c in cues)
+        assert all(isinstance(c._script_line, int) for c in cues)
+        # Each cue should reference a CHARACTER element index
+        assert cues[0]._script_line < cues[-1]._script_line

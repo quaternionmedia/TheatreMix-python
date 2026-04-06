@@ -263,6 +263,7 @@ async def generate_dca(body: GenerateDCARequest):
                 cue_type='DCA',
                 notes=_format_dca_notes(tm_cue),
                 sequence=seq,
+                script_line=getattr(tm_cue, '_script_line', None),
             )
             s.add(sr_cue)
             created.append(sr_cue)
@@ -637,6 +638,7 @@ class TheatreMixPlugin:
                     cue_type='DCA',
                     notes=_format_dca_notes(tm_cue),
                     sequence=seq,
+                    script_line=getattr(tm_cue, '_script_line', None),
                 )
                 s.add(sr_cue)
             s.commit()

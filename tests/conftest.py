@@ -1,6 +1,7 @@
 import pytest
-from screenplay_tools.fountain.parser import Parser
 from screenplay_tools.screenplay import Script
+
+from theatremix.script import _LineTrackingParser
 
 
 @pytest.fixture
@@ -8,10 +9,12 @@ def parse():
     """Return a helper that parses a Fountain string into a Script."""
 
     def _parse(text: str) -> Script:
-        p = Parser()
+        p = _LineTrackingParser()
         p.add_text(text)
         p.finalize()
-        return p.script
+        script = p.script
+        script.element_source_lines = p.element_source_lines
+        return script
 
     return _parse
 

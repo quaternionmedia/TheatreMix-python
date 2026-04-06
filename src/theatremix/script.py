@@ -13,6 +13,34 @@ from .db import TheatreMixDB
 DATABASE = 'mix/seuss.tmix'
 
 
+class _LineTrackingParser(Parser):
+    """Parser subclass that records the source line number of each element."""
+
+    def __init__(self):
+        super().__init__()
+        self._current_line_number = 0
+        self._pending_lines: dict[int, int] = {}
+        self.element_source_lines: list[int] = []
+
+    def add_line(self, line):
+        self._current_line_number += 1
+        super().add_line(line)
+
+    def _parse_character(self):
+        result = super()._parse_character()
+        if result and self._pending:
+            pending = self._pending[-1]
+            self._pending_lines[id(pending['element'])] = self._current_line_number
+        return result
+
+    def _add_element(self, elem):
+        source_line = self._pending_lines.pop(id(elem), self._current_line_number)
+        elem_count_before = len(self.script.elements)
+        super()._add_element(elem)
+        for _ in range(elem_count_before, len(self.script.elements)):
+            self.element_source_lines.append(source_line)
+
+
 def open_script(
     file_path: str,
 ) -> Script:
@@ -22,11 +50,18 @@ def open_script(
 
 
 def parse_script(text: str) -> Script:
-    """Parse Fountain text content into a Script object."""
-    parser = Parser()
+    """Parse Fountain text content into a Script object.
+
+    The returned Script has an ``element_source_lines`` attribute — a list
+    parallel to ``script.elements`` giving each element's 1-based source
+    line number in the original text.
+    """
+    parser = _LineTrackingParser()
     parser.add_text(text)
     parser.finalize()
-    return parser.script
+    script = parser.script
+    script.element_source_lines = parser.element_source_lines
+    return script
 
 
 def split_characters(characters: str) -> list[str]:
