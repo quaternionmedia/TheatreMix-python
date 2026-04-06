@@ -1,4 +1,4 @@
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 import re
 from screenplay_tools.screenplay import ElementType, Script, Section
 

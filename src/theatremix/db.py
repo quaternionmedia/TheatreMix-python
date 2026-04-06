@@ -2,10 +2,11 @@
 
 from typing import Optional, List, Dict, Any
 from pathlib import Path
-from sqlmodel import Session, SQLModel, create_engine, select
-from sqlalchemy import func
+from sqlalchemy import create_engine, func, select
+from sqlalchemy.orm import Session
 
 from .models import (
+    TheatreMixBase,
     Config,
     Cue,
     Profile,
@@ -95,7 +96,7 @@ class TheatreMixDB:
 
     def _create_schema(self):
         """Create all tables in the database."""
-        SQLModel.metadata.create_all(self.engine)
+        TheatreMixBase.metadata.create_all(self.engine)
 
     def _init_config(self):
         """Initialize config table with default values."""
@@ -125,7 +126,7 @@ class TheatreMixDB:
             Tuple of (number, point) where point is incremented by 10
         """
         with Session(self.engine) as session:
-            result = session.exec(
+            result = session.execute(
                 select(func.max(Cue.number), func.max(Cue.point))
             ).first()
 
@@ -212,7 +213,7 @@ class TheatreMixDB:
         """
         with Session(self.engine) as session:
             statement = select(Cue).where(Cue.point == point)
-            return session.exec(statement).first()
+            return session.execute(statement).scalars().first()
 
     def get_all_cues(self) -> List[Cue]:
         """Get all cues ordered by point.
@@ -222,7 +223,7 @@ class TheatreMixDB:
         """
         with Session(self.engine) as session:
             statement = select(Cue).order_by(Cue.point)
-            return list(session.exec(statement))
+            return list(session.execute(statement).scalars())
 
     def update_cue(self, point: int, **kwargs):
         """Update a cue's fields.
@@ -233,7 +234,7 @@ class TheatreMixDB:
         """
         with Session(self.engine) as session:
             statement = select(Cue).where(Cue.point == point)
-            cue = session.exec(statement).first()
+            cue = session.execute(statement).scalars().first()
             if cue:
                 for key, value in kwargs.items():
                     setattr(cue, key, value)
@@ -248,7 +249,7 @@ class TheatreMixDB:
         """
         with Session(self.engine) as session:
             statement = select(Cue).where(Cue.point == point)
-            cue = session.exec(statement).first()
+            cue = session.execute(statement).scalars().first()
             if cue:
                 session.delete(cue)
                 session.commit()
@@ -261,7 +262,7 @@ class TheatreMixDB:
         """
         with Session(self.engine) as session:
             statement = select(Profile).order_by(Profile.channel)
-            return list(session.exec(statement))
+            return list(session.execute(statement).scalars())
 
     def get_profile_by_name(self, name: str) -> Optional[Profile]:
         """Get a profile by character name.
@@ -274,7 +275,7 @@ class TheatreMixDB:
         """
         with Session(self.engine) as session:
             statement = select(Profile).where(Profile.name == name)
-            return session.exec(statement).first()
+            return session.execute(statement).scalars().first()
 
     def get_channel_for_character(self, character: str) -> Optional[int]:
         """Get the channel number for a character.
@@ -325,5 +326,5 @@ class TheatreMixDB:
         """
         with Session(self.engine) as session:
             statement = select(Config)
-            configs = session.exec(statement)
+            configs = session.execute(statement).scalars()
             return {config.param: config.value for config in configs}

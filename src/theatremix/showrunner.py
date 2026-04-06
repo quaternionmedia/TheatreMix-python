@@ -8,6 +8,10 @@ from fastapi import APIRouter, HTTPException
 
 import showrunner
 
+from .db import TheatreMixDB
+from .dca import generate_dca_cues
+from .script import get_characters, open_script
+
 router = APIRouter(prefix='/theatremix', tags=['TheatreMix'])
 
 _db = None  # TheatreMixDB instance, set during startup
@@ -37,8 +41,6 @@ async def list_profiles():
 
 @router.get('/characters')
 async def list_characters():
-    from .script import get_characters, open_script
-
     script_path = _config.get('script')
     if not script_path:
         raise HTTPException(status_code=400, detail='No script path configured')
@@ -52,9 +54,6 @@ async def list_characters():
 @router.post('/generate')
 async def generate_cues():
     """Generate DCA cues from the configured Fountain script and write to the database."""
-    from .dca import generate_dca_cues
-    from .script import open_script
-
     script_path = _config.get('script')
     if not script_path:
         raise HTTPException(status_code=400, detail='No script path configured')
@@ -72,9 +71,7 @@ async def generate_cues():
 
 
 def _open_database(db_path: str):
-    """Open a TheatreMix database, importing TheatreMixDB lazily."""
-    from .db import TheatreMixDB
-
+    """Open a TheatreMix database."""
     return TheatreMixDB(db_path, create_schema=False, init_config=False)
 
 
@@ -183,9 +180,6 @@ class TheatreMixPlugin:
         }
 
     def _cmd_generate(self):
-        from .dca import generate_dca_cues
-        from .script import open_script
-
         script_path = _config.get('script')
         if not script_path:
             return {'error': 'No script path configured in [plugins.theatremix]'}
@@ -204,8 +198,6 @@ class TheatreMixPlugin:
         return {'cues_generated': len(cues)}
 
     def _cmd_characters(self):
-        from .script import get_characters, open_script
-
         script_path = _config.get('script')
         if not script_path:
             return {'error': 'No script path configured in [plugins.theatremix]'}

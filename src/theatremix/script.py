@@ -1,4 +1,5 @@
-from sqlmodel import Session, select
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 import re
 from screenplay_tools.fountain.parser import Parser
 from screenplay_tools.screenplay import ElementType, Script
@@ -115,11 +116,11 @@ def get_character_channels(db_path: str = DATABASE) -> dict[str, str]:
 
     with Session(db.engine) as session:
         # Load characters from Profile table
-        profiles = session.exec(select(Profile)).all()
+        profiles = session.execute(select(Profile)).scalars().all()
         for profile in profiles:
             character_channels[profile.name] = str(profile.channel)
         # Load ensemble groups and map to comma-separated channel lists
-        ensembles = session.exec(select(Ensemble)).all()
+        ensembles = session.execute(select(Ensemble)).scalars().all()
         for ensemble in ensembles:
             character_channels[ensemble.name] = ensemble.channels
 
