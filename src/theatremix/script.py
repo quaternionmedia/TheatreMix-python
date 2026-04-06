@@ -18,10 +18,15 @@ def open_script(
 ) -> Script:
     """Open and parse a Fountain script from a file path."""
     with open(file_path, 'r') as file:
-        parser = Parser()
-        parser.add_text(file.read())
-        parser.finalize()
-        return parser.script
+        return parse_script(file.read())
+
+
+def parse_script(text: str) -> Script:
+    """Parse Fountain text content into a Script object."""
+    parser = Parser()
+    parser.add_text(text)
+    parser.finalize()
+    return parser.script
 
 
 def split_characters(characters: str) -> list[str]:
