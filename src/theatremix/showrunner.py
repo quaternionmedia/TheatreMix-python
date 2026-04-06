@@ -33,6 +33,7 @@ class GenerateDCARequest(BaseModel):
     script_id: int
     lookahead: int = 7
     layer: str = 'Sound'
+    cue_list_id: int | None = None
 
 
 class GenerateDCAReport(BaseModel):
@@ -93,6 +94,29 @@ async def list_profiles():
         raise HTTPException(status_code=503, detail='TheatreMix database not loaded')
     profiles = _db.get_profiles()
     return [p.model_dump() for p in profiles]
+
+
+@router.get('/cuelists')
+async def list_cuelists():
+    """List available cue lists from the ShowRunner database."""
+    from showrunner.models import CueList as SRCueList
+
+    sr_db = _get_showrunner_db()
+    show_id = _get_current_show_id()
+
+    with sr_db.session() as s:
+        cue_lists = s.exec(
+            sr_select(SRCueList).where(SRCueList.show_id == show_id)
+        ).all()
+
+    return [
+        {
+            'id': cl.id,
+            'name': cl.name,
+            'description': cl.description,
+        }
+        for cl in cue_lists
+    ]
 
 
 @router.get('/scripts')
@@ -193,35 +217,43 @@ async def generate_dca(body: GenerateDCARequest):
     show_id = _get_current_show_id()
 
     with sr_db.session() as s:
-        # Find or create a cue list for TheatreMix DCA cues
-        cue_list = s.exec(
-            sr_select(SRCueList).where(
-                SRCueList.show_id == show_id,
-                SRCueList.name == f'TheatreMix DCA ({body.layer})',
-            )
-        ).first()
-
-        if cue_list is None:
-            cue_list = SRCueList(
-                show_id=show_id,
-                name=f'TheatreMix DCA ({body.layer})',
-                description=f'Auto-generated DCA muting cues for {body.layer} layer',
-            )
-            s.add(cue_list)
-            s.commit()
-            s.refresh(cue_list)
+        # Use specified cue list or find/create one by convention
+        if body.cue_list_id is not None:
+            cue_list = s.get(SRCueList, body.cue_list_id)
+            if cue_list is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f'Cue list {body.cue_list_id} not found',
+                )
         else:
-            # Clear existing cues in this list before regenerating
-            existing = s.exec(
-                sr_select(SRCue).where(SRCue.cue_list_id == cue_list.id)
-            ).all()
-            for old_cue in existing:
-                s.delete(old_cue)
-            s.commit()
+            cue_list = s.exec(
+                sr_select(SRCueList).where(
+                    SRCueList.show_id == show_id,
+                    SRCueList.name == f'TheatreMix DCA ({body.layer})',
+                )
+            ).first()
+
+            if cue_list is None:
+                cue_list = SRCueList(
+                    show_id=show_id,
+                    name=f'TheatreMix DCA ({body.layer})',
+                    description=f'Auto-generated DCA muting cues for {body.layer} layer',
+                )
+                s.add(cue_list)
+                s.commit()
+                s.refresh(cue_list)
+
+        # Determine sequence offset so new cues append after existing ones
+        max_seq = s.exec(
+            sr_select(SRCue.sequence)
+            .where(SRCue.cue_list_id == cue_list.id)
+            .order_by(SRCue.sequence.desc())
+        ).first()
+        seq_offset = (max_seq + 1) if max_seq is not None else 0
 
         # Convert TheatreMix Cues to ShowRunner Cues
         created = []
-        for seq, tm_cue in enumerate(dca_cues):
+        for seq, tm_cue in enumerate(dca_cues, start=seq_offset):
             sr_cue = SRCue(
                 cue_list_id=cue_list.id,
                 number=tm_cue.number,
@@ -243,7 +275,7 @@ async def generate_dca(body: GenerateDCARequest):
 
         cue_dicts = [
             {
-                'id': c.id,
+                # 'id': c.id,
                 'number': c.number,
                 'point': c.point,
                 'name': c.name,
@@ -392,6 +424,10 @@ class TheatreMixPlugin:
                 'name': 'theatremix:characters',
                 'description': 'List characters found in a Fountain script',
             },
+            {
+                'name': 'theatremix:cuelists',
+                'description': 'List available cue lists for the current show',
+            },
         ]
 
     @showrunner.hookimpl
@@ -402,6 +438,8 @@ class TheatreMixPlugin:
             return self._cmd_scripts()
         if command_name == 'theatremix:characters':
             return self._cmd_characters(**kwargs)
+        if command_name == 'theatremix:cuelists':
+            return self._cmd_cuelists()
         return None
 
     @showrunner.hookimpl
@@ -480,11 +518,36 @@ class TheatreMixPlugin:
 
         return {'characters': get_characters(script)}
 
+    def _cmd_cuelists(self):
+        from showrunner.models import CueList as SRCueList
+
+        sr_db = getattr(_app, 'db', None)
+        if sr_db is None:
+            return {'error': 'ShowRunner database not loaded'}
+
+        config = getattr(_app, 'config', None)
+        show_id = getattr(config, 'current_show', None) if config else None
+        if show_id is None:
+            return {'error': 'No current show configured'}
+
+        with sr_db.session() as s:
+            cue_lists = s.exec(
+                sr_select(SRCueList).where(SRCueList.show_id == show_id)
+            ).all()
+
+        return {
+            'cue_lists': [
+                {'id': cl.id, 'name': cl.name, 'description': cl.description}
+                for cl in cue_lists
+            ]
+        }
+
     def _cmd_generate_dca(
         self,
         script_id: int | None = None,
         lookahead: int = 7,
         layer: str = 'Sound',
+        cue_list_id: int | None = None,
         **_kwargs,
     ):
         if layer not in VALID_LAYERS:
@@ -533,31 +596,38 @@ class TheatreMixPlugin:
         errors: list[str] = []
 
         with sr_db.session() as s:
-            cue_list = s.exec(
-                sr_select(SRCueList).where(
-                    SRCueList.show_id == show_id,
-                    SRCueList.name == f'TheatreMix DCA ({layer})',
-                )
-            ).first()
-
-            if cue_list is None:
-                cue_list = SRCueList(
-                    show_id=show_id,
-                    name=f'TheatreMix DCA ({layer})',
-                    description=f'Auto-generated DCA muting cues for {layer} layer',
-                )
-                s.add(cue_list)
-                s.commit()
-                s.refresh(cue_list)
+            # Use specified cue list or find/create one by convention
+            if cue_list_id is not None:
+                cue_list = s.get(SRCueList, cue_list_id)
+                if cue_list is None:
+                    return {'error': f'Cue list {cue_list_id} not found'}
             else:
-                existing = s.exec(
-                    sr_select(SRCue).where(SRCue.cue_list_id == cue_list.id)
-                ).all()
-                for old in existing:
-                    s.delete(old)
-                s.commit()
+                cue_list = s.exec(
+                    sr_select(SRCueList).where(
+                        SRCueList.show_id == show_id,
+                        SRCueList.name == f'TheatreMix DCA ({layer})',
+                    )
+                ).first()
 
-            for seq, tm_cue in enumerate(dca_cues):
+                if cue_list is None:
+                    cue_list = SRCueList(
+                        show_id=show_id,
+                        name=f'TheatreMix DCA ({layer})',
+                        description=f'Auto-generated DCA muting cues for {layer} layer',
+                    )
+                    s.add(cue_list)
+                    s.commit()
+                    s.refresh(cue_list)
+
+            # Determine sequence offset so new cues append after existing ones
+            max_seq = s.exec(
+                sr_select(SRCue.sequence)
+                .where(SRCue.cue_list_id == cue_list.id)
+                .order_by(SRCue.sequence.desc())
+            ).first()
+            seq_offset = (max_seq + 1) if max_seq is not None else 0
+
+            for seq, tm_cue in enumerate(dca_cues, start=seq_offset):
                 sr_cue = SRCue(
                     cue_list_id=cue_list.id,
                     number=tm_cue.number,

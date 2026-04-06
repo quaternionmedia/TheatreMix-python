@@ -265,6 +265,7 @@ class TestPluginRegistration:
         assert 'theatremix:generate-dca' in names
         assert 'theatremix:scripts' in names
         assert 'theatremix:characters' in names
+        assert 'theatremix:cuelists' in names
 
 
 # ---------------------------------------------------------------------------
@@ -318,7 +319,7 @@ class TestCmdGenerateDca:
         )
         assert 'error' in result
 
-    def test_regenerate_clears_old_cues(self, setup_plugin, sr_db):
+    def test_regenerate_appends_cues(self, setup_plugin, sr_db):
         # Generate once
         r1 = plugin.showrunner_command(
             command_name='theatremix:generate-dca',
@@ -329,7 +330,7 @@ class TestCmdGenerateDca:
         cue_list_id = r1['cue_list_id']
         count1 = r1['cues_created']
 
-        # Generate again — should reuse same cue list, clear old cues
+        # Generate again — should reuse same cue list, append new cues
         r2 = plugin.showrunner_command(
             command_name='theatremix:generate-dca',
             script_id=1,
@@ -338,10 +339,14 @@ class TestCmdGenerateDca:
         )
         assert r2['cue_list_id'] == cue_list_id
 
-        # Total cues should equal second run only, not accumulated
+        # Total cues should be sum of both runs
         with sr_db.session() as s:
             cues = s.exec(select(SRCue).where(SRCue.cue_list_id == cue_list_id)).all()
-            assert len(cues) == r2['cues_created']
+            assert len(cues) == count1 + r2['cues_created']
+
+            # Second batch should have higher sequence numbers
+            sequences = sorted(c.sequence for c in cues)
+            assert sequences == list(range(count1 + r2['cues_created']))
 
     def test_different_layers_get_separate_cuelists(self, setup_plugin, sr_db):
         r_sound = plugin.showrunner_command(
@@ -355,6 +360,39 @@ class TestCmdGenerateDca:
             layer='Lights',
         )
         assert r_sound['cue_list_id'] != r_lights['cue_list_id']
+
+    def test_generate_into_existing_cuelist(self, setup_plugin, sr_db):
+        # Create a cue list first
+        with sr_db.session() as s:
+            cl = SRCueList(show_id=1, name='My Custom List')
+            s.add(cl)
+            s.commit()
+            s.refresh(cl)
+            cl_id = cl.id
+
+        result = plugin.showrunner_command(
+            command_name='theatremix:generate-dca',
+            script_id=1,
+            layer='Sound',
+            cue_list_id=cl_id,
+        )
+        assert result['cue_list_id'] == cl_id
+        assert result['cues_created'] > 0
+
+        # Verify cues landed in the specified list
+        with sr_db.session() as s:
+            cues = s.exec(select(SRCue).where(SRCue.cue_list_id == cl_id)).all()
+            assert len(cues) == result['cues_created']
+
+    def test_nonexistent_cuelist_returns_error(self, setup_plugin):
+        result = plugin.showrunner_command(
+            command_name='theatremix:generate-dca',
+            script_id=1,
+            layer='Sound',
+            cue_list_id=999,
+        )
+        assert 'error' in result
+        assert '999' in result['error']
 
 
 # ---------------------------------------------------------------------------
@@ -399,3 +437,37 @@ class TestCmdCharacters:
     def test_no_script_or_path_returns_error(self, setup_plugin):
         result = plugin.showrunner_command(command_name='theatremix:characters')
         assert 'error' in result
+
+
+# ---------------------------------------------------------------------------
+# Tests: Command — cuelists
+# ---------------------------------------------------------------------------
+
+
+class TestCmdCuelists:
+    def test_lists_cuelists_for_show(self, setup_plugin, sr_db):
+        # Create a couple of cue lists
+        with sr_db.session() as s:
+            s.add(SRCueList(show_id=1, name='Main'))
+            s.add(SRCueList(show_id=1, name='DCA'))
+            s.commit()
+
+        result = plugin.showrunner_command(command_name='theatremix:cuelists')
+        names = [cl['name'] for cl in result['cue_lists']]
+        assert 'Main' in names
+        assert 'DCA' in names
+
+    def test_empty_when_no_cuelists(self, setup_plugin):
+        result = plugin.showrunner_command(command_name='theatremix:cuelists')
+        assert result['cue_lists'] == []
+
+    def test_no_app_returns_error(self):
+        import theatremix.showrunner as sr_mod
+
+        old = sr_mod._app
+        sr_mod._app = None
+        try:
+            result = plugin.showrunner_command(command_name='theatremix:cuelists')
+            assert 'error' in result
+        finally:
+            sr_mod._app = old
