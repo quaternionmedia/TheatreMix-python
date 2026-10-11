@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/theatremix-python
+      url: https://pypi.org/p/theatremix
     permissions:
       id-token: write
     steps:
