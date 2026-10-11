@@ -1,128 +1,47 @@
-from sqlmodel import Session, select
-from fountain import fountain
+from sqlalchemy.orm import Session
 import re
+from screenplay_tools.screenplay import ElementType, Script, Section
 
-from .models import Cue, Profile, Ensemble
-from .db import CueDatabase
-
-# from rich import print
-
-DATABASE = 'mix/seuss.tmix'
-
-
-def open_script(
-    file_path: str = '../seussical/scripts/seussical.fountain',
-) -> fountain.Fountain:
-    """Open and parse a Fountain script from a file path."""
-    with open(file_path, 'r') as file:
-        return fountain.Fountain(file.read())
+from .models import Cue
+from .db import TheatreMixDB
+from .script import (
+    open_script,
+    split_characters,
+    speaks_within,
+    get_character_channels,
+    get_line_preview_start,
+    get_line_preview_end,
+)
 
 
-def split_characters(characters: str) -> list[str]:
-    """Clean and split character headings"""
-    # Remove parenthesis
-    characters = re.sub(r'\([^)]*\)', '', characters)
-    # split the characters by '&'
-    # If it contains lowercase letters (e.g., "Dr. Seuss"), keep as is
-    # Otherwise, title case each character name
-    return [c if re.search(r'[a-z]', c) else c.title() for c in characters.split(' & ')]
+def _extract_page_number(element, script_notes: list) -> int | None:
+    """Extract a page number from an element's notes (standalone or inline).
 
+    Checks standalone NOTE elements directly, and also checks inline notes
+    referenced in any element's text_raw (e.g. dialogue with [[Page 15]] mid-text).
 
-def speaks_within(book, character, n: int = 7, skip_first: bool = False) -> bool:
-    """Check if character speaks within next n dialogue blocks or before scene change.
-
-    Args:
-        book: List of script elements to search
-        character: Character name to look for
-        n: Number of dialogue blocks to look ahead
-        skip_first: If True, don't count the first dialogue block in the search
-
-    Returns:
-        True if character speaks within window, False otherwise
+    Returns the highest page number found, or None if no page note exists.
     """
-    dialogues = 0
-    first_skipped = not skip_first
-    for i, element in enumerate(book):
-        if dialogues >= n:
-            return False
-        if element.element_type == 'Scene Heading':
-            return False
-        if element.element_type == 'Character':
-            if not first_skipped:
-                first_skipped = True
-                continue
-            characters = split_characters(element.element_text)
-            if character in characters:
-                return True
-            dialogues += 1
-    return False
+    # Standalone note element
+    if element.type == ElementType.NOTE:
+        match = re.match(r'^Page (\d+)$', element.text)
+        if match:
+            return int(match.group(1))
 
-
-def get_characters(script):
-    characters = set()
-    for element in script.elements:
-        if element.element_type == 'Character':
-            chars = split_characters(element.element_text)
-            for char in chars:
-                characters.add(char.strip())
-    characters = sorted(list(characters))
-    return characters
-
-
-def get_line_preview_start(script, length=40):
-    """Get a starting preview of the dialogue line following the character element"""
-    # look for the next Dialogue element
-    for i in range(len(script)):
-        if script[i].element_type == 'Dialogue':
-            line = script[i].element_text
-            if len(line) > length:
-                return line[:length] + '...'
-            else:
-                return line
-
-
-def get_line_preview_end(script, length=40):
-    """Get an ending preview of the dialogue line following the character element"""
-    # look for the next Dialogue element from the end
-    for i in range(len(script) - 1, -1, -1):
-        if script[i].element_type == 'Dialogue':
-            line = script[i].element_text
-            if len(line) > length:
-                return '...' + line[-length:]
-            else:
-                return line
-
-
-def get_character_channels(db_path: str = DATABASE) -> dict[str, str]:
-    """Load character to channel mapping from database.
-
-    For individual characters, returns their single channel number.
-    For ensemble groups, returns comma-separated list of all member channels.
-
-    Args:
-        db_path: Path to the .tmix database file
-
-    Returns:
-        Dictionary mapping character names to channel numbers (as strings)
-    """
-    db = CueDatabase(db_path, create_schema=False, init_config=False)
-    character_channels = {}
-
-    with Session(db.engine) as session:
-        # Load characters from Profile table
-        profiles = session.exec(select(Profile)).all()
-        for profile in profiles:
-            character_channels[profile.name] = str(profile.channel)
-        # Load ensemble groups and map to comma-separated channel lists
-        ensembles = session.exec(select(Ensemble)).all()
-        for ensemble in ensembles:
-            character_channels[ensemble.name] = ensemble.channels
-
-    return character_channels
+    # Inline notes: text_raw contains [[index]] references into script.notes
+    raw = getattr(element, 'text_raw', '') or ''
+    page = None
+    for ref in re.findall(r'\[\[(\d+)\]\]', raw):
+        idx = int(ref)
+        if idx < len(script_notes):
+            match = re.match(r'^Page (\d+)$', script_notes[idx].text)
+            if match:
+                page = int(match.group(1))
+    return page
 
 
 def generate_dca_cues(
-    script: fountain.Fountain, db_path: str = DATABASE, max_dialogues_ahead: int = 7
+    script: Script, db_path: str, max_dialogues_ahead: int = 7
 ) -> list[Cue]:
     """Generate the list of cues for DCA muting.
 
@@ -161,23 +80,24 @@ def generate_dca_cues(
     }
 
     for i, element in enumerate(script.elements):
-        # Track page numbers from comments
-        if element.element_type == 'Comment':
-            if re.match(r'^Page \d+$', element.element_text):
-                page = int(re.search(r'\d+', element.element_text).group())
+        # Track page numbers from standalone notes and inline notes
+        found_page = _extract_page_number(element, script.notes)
+        if found_page is not None:
+            page = found_page
+            if element.type == ElementType.NOTE:
                 continue
 
         # Handle scene transitions - mute all active characters
-        if element.element_type == 'Scene Heading':
+        if element.type == ElementType.HEADING:
             # Check if any current active character speaks first in this scene
             first_speakers = set()
             remaining_script = script.elements[i + 1 :]
             for future_elem in remaining_script:
-                if future_elem.element_type == 'Character':
-                    chars = split_characters(future_elem.element_text)
+                if future_elem.type == ElementType.CHARACTER:
+                    chars = split_characters(future_elem.name)
                     first_speakers.update(char.strip() for char in chars)
                     break
-                elif future_elem.element_type == 'Scene Heading':
+                elif future_elem.type == ElementType.HEADING:
                     break
 
             # Mute characters who won't speak first in new scene
@@ -189,6 +109,10 @@ def generate_dca_cues(
                     number=cue_number,
                     point=0,
                     name=f"p{page} -{mute_names}- Scene Change - {get_line_preview_end(script.elements[:i], 30)}",
+                )
+                cue._script_line = (
+                    getattr(script, 'element_source_lines', None)
+                    and script.element_source_lines[i]
                 )
 
                 # Copy all current DCA states to this cue
@@ -229,8 +153,8 @@ def generate_dca_cues(
             continue
 
         # Handle character dialogue
-        if element.element_type == 'Character':
-            characters = split_characters(element.element_text)
+        if element.type == ElementType.CHARACTER:
+            characters = split_characters(element.name)
             remaining_script = script.elements[i + 1 :]
 
             # Collect all DCA changes for this dialogue block
@@ -239,9 +163,7 @@ def generate_dca_cues(
 
             # Process each character in this dialogue block
             for character in characters:
-                character = character.strip()[
-                    :12
-                ]  # TODO: Fix character name length handling
+                character = character.strip()
 
                 # Track character if not already active
                 if character not in active_mics:
@@ -301,6 +223,10 @@ def generate_dca_cues(
                     point=0,
                     name=cue_name,
                 )
+                cue._script_line = (
+                    getattr(script, 'element_source_lines', None)
+                    and script.element_source_lines[i]
+                )
 
                 # Copy all current DCA states to this cue
                 for dca_i in range(1, 13):
@@ -357,6 +283,12 @@ def generate_dca_cues(
 
 if __name__ == '__main__':
     import argparse
+    from .script import (
+        open_script,
+        split_characters,
+        speaks_within,
+        get_character_channels,
+    )
 
     parser = argparse.ArgumentParser(
         description='Generate DCA muting cues from a Fountain script'
@@ -368,16 +300,15 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--database',
-        default=DATABASE,
-        help=f'Path to .tmix database file (default: {DATABASE})',
+        help='Path to .tmix database file',
     )
     args = parser.parse_args()
 
-    script = open_script()
-    cues = generate_dca_cues(script)
+    script = open_script(args.script)
+    cues = generate_dca_cues(script, args.database)
     print(f"Generated {len(cues)} DCA cues\n")
     print(cues[:1])
 
-    with Session(CueDatabase(DATABASE).engine) as session:
+    with Session(TheatreMixDB(args.database).engine) as session:
         session.add_all(cues[:1])
         session.commit()
