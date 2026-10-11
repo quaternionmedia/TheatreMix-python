@@ -2036,8 +2036,8 @@ wheels = [
 
 [[package]]
 name = "showrunner"
-version = "0.1.0"
-source = { editable = "../ShowRunner" }
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "alembic" },
     { name = "fastapi" },
@@ -2048,37 +2048,10 @@ dependencies = [
     { name = "sqlmodel" },
     { name = "watchfiles" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "alembic", specifier = ">=1.18.4" },
-    { name = "fastapi", specifier = ">=0.135.2" },
-    { name = "fpdf2", marker = "extra == 'pdf'", specifier = ">=2.8.7" },
-    { name = "loguru", specifier = ">=0.7.3" },
-    { name = "nicegui", specifier = ">=2.0" },
-    { name = "pluggy", specifier = ">=1.6.0" },
-    { name = "python-rtmidi", marker = "extra == 'midi'", specifier = ">=1.5" },
-    { name = "screenplay-tools", specifier = ">=0.0.10" },
-    { name = "showrunner", extras = ["admin"], marker = "extra == 'all'" },
-    { name = "showrunner", extras = ["cli"], marker = "extra == 'all'" },
-    { name = "showrunner", extras = ["midi"], marker = "extra == 'all'" },
-    { name = "showrunner", extras = ["pdf"], marker = "extra == 'all'" },
-    { name = "sqladmin", marker = "extra == 'admin'", specifier = ">=0.20.1" },
-    { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'admin'", specifier = ">=2.0.54" },
-    { name = "sqlmodel", specifier = ">=0.0.37" },
-    { name = "typer", marker = "extra == 'cli'", specifier = ">=0.24.1" },
-    { name = "watchfiles", specifier = ">=1.0.0" },
+sdist = { url = "https://files.pythonhosted.org/packages/e5/72/cc2ddb8da12176bc53f7d7f4e74234d0280a18ff9637fd054a82d38ee8b2/showrunner-0.2.0.tar.gz", hash = "sha256:59699adfe19c9adf35b7bd64899ff89dd4dfda7b8fe891fc82f67987d6220255", size = 47186, upload-time = "2026-10-08T06:56:06.158Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cb/25/d22bf0867f63cb0aedbdaf24aae00410ca0f934e658e8cf59db065d016ff/showrunner-0.2.0-py3-none-any.whl", hash = "sha256:13b07cd0a86b6c44e4559484288ea0e10b542115dc8ace385a49e8ce8c3968d1", size = 61224, upload-time = "2026-10-08T06:56:04.795Z" },
 ]
-provides-extras = ["admin", "cli", "midi", "pdf", "all"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "black", specifier = ">=26.3.1" },
-    { name = "pytest", specifier = ">=9.0.2" },
-    { name = "ruff", specifier = ">=0.15.8" },
-    { name = "uvicorn", specifier = ">=0.42.0" },
-]
-docs = [{ name = "zensical", specifier = ">=0.0.31" }]
 
 [[package]]
 name = "simple-websocket"
@@ -2221,7 +2194,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "screenplay-tools", specifier = ">=0.0.10" },
-    { name = "showrunner", editable = "../ShowRunner" },
+    { name = "showrunner", specifier = ">=0.2.0" },
     { name = "sqlmodel", specifier = ">=0.0.27" },
 ]
 
