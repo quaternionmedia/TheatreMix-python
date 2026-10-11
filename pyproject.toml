@@ -1,25 +1,24 @@
 [project]
 name = "theatremix"
-version = "0.1.0"
+version = "0.2.0"
 description = "TheatreMix functions for python"
 readme = "README.md"
 authors = [{ name = "Harpo", email = "harpo@harpo.me" }]
-requires-python = ">=3.10"
-dependencies = [
-    "screenplay-tools>=0.0.10",
-    "showrunner>=0.2.0",
-    "sqlmodel>=0.0.27",
-]
+requires-python = ">=3.11"
+dependencies = ["sqlmodel>=0.0.27"]
 
 [build-system]
 requires = ["uv_build>=0.9.5,<0.10.0"]
 build-backend = "uv_build"
 
-# [tool.uv.sources]
-# showrunner = { path = "../ShowRunner", editable = true }
+[dependency-groups]
+dev = ["ipykernel>=7.1.0", "pytest>=9.0.2"]
 
 [project.entry-points.showrunner]
 theatremix = "theatremix.showrunner:plugin"
 
-[dependency-groups]
-dev = ["ipykernel>=7.1.0", "pytest>=9.0.2"]
+[project.optional-dependencies]
+showrunner = ["screenplay-tools>=0.0.10", "showrunner>=0.2.0"]
+
+# [tool.uv.sources]
+# showrunner = { path = "../ShowRunner", editable = true }

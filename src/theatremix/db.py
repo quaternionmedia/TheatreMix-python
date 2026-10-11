@@ -2,7 +2,7 @@
 
 from typing import Optional, List, Dict, Any
 from pathlib import Path
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, delete, func, select
 from sqlalchemy.orm import Session
 
 from .models import (
@@ -202,54 +202,82 @@ class TheatreMixDB:
 
         return point
 
-    def get_cue(self, point: int) -> Optional[Cue]:
-        """Get a cue by its point number.
-
-        Args:
-            point: Cue point number
-
-        Returns:
-            Cue object or None if not found
-        """
+    def get_cue(self, number: int, point: int) -> Optional[Cue]:
+        """Get a cue by its (number, point) key."""
         with Session(self.engine) as session:
-            statement = select(Cue).where(Cue.point == point)
-            return session.execute(statement).scalars().first()
+            return session.get(Cue, (number, point))
+
+    def get_dca_numbers(self) -> List[int]:
+        """DCA numbers the grid shows, from the ``dcas`` config (e.g. [1..12])."""
+        raw = self.get_config('dcas') or ''
+        return [int(x) for x in raw.split(',') if x.strip()]
+
+    def replace_cues(self, cues: List[Cue]):
+        """Replace every cue in one transaction (used by Generate).
+
+        expire_on_commit=False keeps the cues readable after the write.
+        """
+        with Session(self.engine, expire_on_commit=False) as session:
+            session.execute(delete(Cue))
+            session.add_all(cues)
+            session.commit()
 
     def get_all_cues(self) -> List[Cue]:
-        """Get all cues ordered by point.
+        """Get all cues ordered by (number, point).
 
         Returns:
             List of Cue objects
         """
         with Session(self.engine) as session:
-            statement = select(Cue).order_by(Cue.point)
+            statement = select(Cue).order_by(Cue.number, Cue.point)
             return list(session.execute(statement).scalars())
 
-    def update_cue(self, point: int, **kwargs):
-        """Update a cue's fields.
-
-        Args:
-            point: Cue point to update
-            **kwargs: Field names and values to update
-        """
+    def update_cue(self, number: int, point: int, **kwargs):
+        """Update fields of the cue at (number, point). Changing number/point renumbers it."""
         with Session(self.engine) as session:
-            statement = select(Cue).where(Cue.point == point)
-            cue = session.execute(statement).scalars().first()
+            cue = session.get(Cue, (number, point))
             if cue:
                 for key, value in kwargs.items():
                     setattr(cue, key, value)
-                session.add(cue)
                 session.commit()
 
-    def delete_cue(self, point: int):
-        """Delete a cue by point number.
-
-        Args:
-            point: Cue point to delete
-        """
+    def renumber_cue(self, number: int, point: int, new_number: int, new_point: int):
+        """Move a cue to a new (number, point). The table has no PK, so check for a clash first."""
+        if (new_number, new_point) != (number, point) and self.get_cue(new_number, new_point):
+            raise ValueError(f'Cue {new_number}.{new_point} already exists')
         with Session(self.engine) as session:
-            statement = select(Cue).where(Cue.point == point)
-            cue = session.execute(statement).scalars().first()
+            cue = session.get(Cue, (number, point))
+            if cue:
+                cue.number, cue.point = new_number, new_point
+                session.commit()
+
+    def copy_cue(self, number: int, point: int) -> int:
+        """Duplicate a cue as a new point under the same number. Returns the new point."""
+        with Session(self.engine) as session:
+            src = session.get(Cue, (number, point))
+            if src is None:
+                raise ValueError(f'Cue {number}.{point} not found')
+            top = session.execute(
+                select(func.max(Cue.point)).where(Cue.number == number)
+            ).scalar()
+            data = {c.key: getattr(src, c.key) for c in Cue.__table__.columns}
+            data['point'] = top + 10
+            session.add(Cue(**data))
+            session.commit()
+            return data['point']
+
+    def snapshot_cues(self) -> List[dict]:
+        """Plain-dict copy of every cue column, for undo."""
+        return [{c.key: getattr(cue, c.key) for c in Cue.__table__.columns} for cue in self.get_all_cues()]
+
+    def restore_cues(self, snapshot: List[dict]):
+        """Replace the whole cue list with a snapshot from snapshot_cues()."""
+        self.replace_cues([Cue(**d) for d in snapshot])
+
+    def delete_cue(self, number: int, point: int):
+        """Delete the cue at (number, point)."""
+        with Session(self.engine) as session:
+            cue = session.get(Cue, (number, point))
             if cue:
                 session.delete(cue)
                 session.commit()
@@ -263,6 +291,38 @@ class TheatreMixDB:
         with Session(self.engine) as session:
             statement = select(Profile).order_by(Profile.channel)
             return list(session.execute(statement).scalars())
+
+    def get_ensembles(self) -> List[Ensemble]:
+        """All ensembles (name + channel list), ordered by name."""
+        with Session(self.engine) as session:
+            return list(session.execute(select(Ensemble).order_by(Ensemble.name)).scalars())
+
+    def list_rows(self, model) -> list:
+        """All rows of a table model (Profile, Ensemble, Actor), ordered by id."""
+        with Session(self.engine) as session:
+            return list(session.execute(select(model).order_by(model.id)).scalars())
+
+    def add_row(self, model, **fields) -> int:
+        with Session(self.engine) as session:
+            row = model(**fields)
+            session.add(row)
+            session.commit()
+            return row.id
+
+    def update_row(self, model, row_id: int, **fields):
+        with Session(self.engine) as session:
+            row = session.get(model, row_id)
+            if row:
+                for key, value in fields.items():
+                    setattr(row, key, value)
+                session.commit()
+
+    def delete_row(self, model, row_id: int):
+        with Session(self.engine) as session:
+            row = session.get(model, row_id)
+            if row:
+                session.delete(row)
+                session.commit()
 
     def get_profile_by_name(self, name: str) -> Optional[Profile]:
         """Get a profile by character name.
