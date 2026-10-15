@@ -9,6 +9,8 @@
 - Sub pages under `/theatremix/edit/`: profiles, ensembles, actors.
 - Linked ShowRunner cues (`layer='Mix'`, `cue_type='TheatreMix'`) in the `TheatreMix` cue list, synced after every change.
 
+- Script viewer: linked Mix cues show their DCA assignments (grid colours) under the cue's line, and again at the top of each following page. Needs a ShowRunner with the `showrunner_script_previews` hook and `Mix` layer.
+
 ## Not built yet
 - Live console connection: active-cue highlight, channel level monitor, backup-mic status.
 - Position and FX columns.

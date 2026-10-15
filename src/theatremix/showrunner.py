@@ -413,6 +413,15 @@ class TheatreMixPlugin:
                     _db = _open_database(str(path))
 
     @showrunner.hookimpl
+    def showrunner_script_previews(self, cues):
+        """DCA assignment chips for linked Mix cues in the script viewer."""
+        if _db is None or not any(c.get('layer') == 'Mix' for c in cues):
+            return None
+        from .ui import script_previews
+
+        return script_previews(_db.get_all_cues(), _db.get_dca_numbers(), cues)
+
+    @showrunner.hookimpl
     def showrunner_get_nav(self):
         return {
             'label': 'TheatreMix',

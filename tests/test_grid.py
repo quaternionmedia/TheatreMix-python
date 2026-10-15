@@ -58,3 +58,21 @@ def test_merge_channels():
     assert merge_channels('', '3,4') == '3,4'
     assert merge_channels('1, 3', '3,4') == '1,3,4'
     assert merge_channels('1', '') == '1'
+
+
+def test_script_previews_follow_grid_state_and_skip_non_mix():
+    from types import SimpleNamespace as NS
+
+    from theatremix.ui import script_previews
+
+    tm = [NS(number=1, point=0, dca01Label='Judge', dca01Channels='1', dca02Label=None, dca02Channels=None),
+          NS(number=2, point=0, dca01Label=None, dca01Channels=None, dca02Label='Guard', dca02Channels='13')]
+    sr = [{'id': 10, 'number': '1', 'point': 0, 'layer': 'Mix'},
+          {'id': 11, 'number': '2', 'point': 0, 'layer': 'Mix'},
+          {'id': 12, 'number': '2', 'point': 0, 'layer': 'Sound'},
+          {'id': 13, 'number': 'x', 'point': 0, 'layer': 'Mix'},
+          {'id': 14, 'number': '9', 'point': 0, 'layer': 'Mix'}]
+    out = script_previews(tm, [1, 2], sr)
+    assert set(out) == {10, 11}
+    assert out[10] == [{'text': '1 Judge', 'color': 'green-4', 'tooltip': 'DCA 1: ch 1'}]
+    assert [(c['text'], c['color']) for c in out[11]] == [('1 ✕', 'red-4'), ('2 Guard', 'green-4')]

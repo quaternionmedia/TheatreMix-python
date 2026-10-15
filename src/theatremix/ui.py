@@ -64,6 +64,41 @@ def grid_rows(cues, dcas: list[int]) -> list[dict]:
     return rows
 
 
+def script_previews(tm_cues, dcas: list[int], sr_cues: list[dict]) -> dict[int, list[dict]]:
+    """Preview chips for linked 'Mix' cues in the ShowRunner script viewer: {sr cue id: chips}.
+
+    Chips use the grid's colours (each DCA vs the previous .tmix cue). Empty DCAs are left out.
+    """
+    by_key: dict[tuple[int, int], list[dict]] = {}
+    prev = {d: ('', '') for d in dcas}
+    for cue in tm_cues:
+        chips = []
+        for d in dcas:
+            cur = theme.dca_cell(cue, d)
+            state = theme.cell_state(prev[d], cur)
+            prev[d] = cur
+            if state == 'empty':
+                continue
+            label, channels = cur
+            chip = {'text': f'{d} {label or channels or "✕"}', 'color': theme.COLORS[state]}
+            if channels:
+                chip['tooltip'] = f'DCA {d}: ch {channels}'
+            chips.append(chip)
+        by_key[(cue.number, cue.point)] = chips
+
+    out = {}
+    for c in sr_cues:
+        if c.get('layer') != 'Mix':
+            continue
+        try:
+            key = (int(c['number']), c['point'])
+        except (TypeError, ValueError):
+            continue
+        if key in by_key:
+            out[c['id']] = by_key[key]
+    return out
+
+
 def grid_columns(dcas: list[int]) -> list[dict]:
     """Column definitions: cue number, name, then one column per DCA."""
     cols = [
