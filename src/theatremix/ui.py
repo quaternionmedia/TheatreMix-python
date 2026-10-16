@@ -22,10 +22,10 @@ _undo_stack: deque[dict] = deque(maxlen=UNDO_LEVELS)
 
 # Vue template for every body cell. Click emits the cell; right-click emits the cue (for colour).
 CELL_TEMPLATE = """
-<q-td :props="props" :class="props.row.row_cls"
+<q-td :props="props" :class="props.col.name.startsWith('dca') ? props.value.cls : props.row.row_cls"
   @click="$parent.$emit('cell-click', {id: props.row.id, col: props.col.name})"
   @contextmenu.prevent="$parent.$emit('cell-click', {id: props.row.id, col: 'cue'})">
-  <span v-if="props.col.name.startsWith('dca')" :class="props.value.cls">
+  <span v-if="props.col.name.startsWith('dca')">
     <q-tooltip v-if="props.value.channels">ch {{ props.value.channels }}</q-tooltip>
     {{ props.value.label }}
   </span>
@@ -42,8 +42,9 @@ def _cue_label(cue) -> str:
 def grid_rows(cues, dcas: list[int]) -> list[dict]:
     """Table rows for the DCA grid. Each DCA cell is compared with the same DCA on the previous cue."""
     rows = []
-    prev = {d: ('', '') for d in dcas}
-    for cue in cues:
+    cues = list(cues)
+    for i, cue in enumerate(cues):
+        nxt = cues[i + 1] if i + 1 < len(cues) else None
         colour = theme.row_colour(cue.colour)
         row = {
             'id': f'{cue.number}.{cue.point}',
@@ -53,13 +54,12 @@ def grid_rows(cues, dcas: list[int]) -> list[dict]:
         }
         for d in dcas:
             cur = theme.dca_cell(cue, d)
-            state = theme.cell_state(prev[d], cur)
+            state = theme.cell_state(cur, theme.dca_cell(nxt, d) if nxt else None)
             row[f'dca{d}'] = {
                 'label': cur[0],
                 'channels': cur[1],
-                'cls': f'text-{theme.COLORS[state]}',
+                'cls': f'bg-{theme.COLORS[state]}' if state else row['row_cls'],
             }
-            prev[d] = cur
         rows.append(row)
     return rows
 
@@ -67,20 +67,20 @@ def grid_rows(cues, dcas: list[int]) -> list[dict]:
 def script_previews(tm_cues, dcas: list[int], sr_cues: list[dict]) -> dict[int, list[dict]]:
     """Preview chips for linked 'Mix' cues in the ShowRunner script viewer: {sr cue id: chips}.
 
-    Chips use the grid's colours (each DCA vs the previous .tmix cue). Empty DCAs are left out.
+    Chips use the grid's background colours (state vs the next .tmix cue). Empty DCAs are left out.
     """
     by_key: dict[tuple[int, int], list[dict]] = {}
-    prev = {d: ('', '') for d in dcas}
-    for cue in tm_cues:
+    cues = list(tm_cues)
+    for i, cue in enumerate(cues):
+        nxt = cues[i + 1] if i + 1 < len(cues) else None
         chips = []
         for d in dcas:
             cur = theme.dca_cell(cue, d)
-            state = theme.cell_state(prev[d], cur)
-            prev[d] = cur
-            if state == 'empty':
+            if not any(cur):
                 continue
+            state = theme.cell_state(cur, theme.dca_cell(nxt, d) if nxt else None)
             label, channels = cur
-            chip = {'text': f'{d} {label or channels or "✕"}', 'color': theme.COLORS[state]}
+            chip = {'text': f'{d} {label or channels}', 'color': theme.COLORS[state] if state else 'grey-9'}
             if channels:
                 chip['tooltip'] = f'DCA {d}: ch {channels}'
             chips.append(chip)

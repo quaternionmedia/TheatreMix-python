@@ -7,12 +7,11 @@ per show in show.toml under [plugins.theatremix.colors] (see docs/theme.md).
 
 from __future__ import annotations
 
-# Text colour of a DCA cell, by its state compared with the previous cue.
+# Background colour of a DCA cell, by what the DCA does in the NEXT cue.
 COLORS: dict[str, str] = {
-    'new': 'green-4',  # label set or changed since the previous cue
-    'same': 'white',  # label unchanged from the previous cue
-    'cleared': 'red-4',  # DCA cleared (muted) in this cue
-    'empty': 'grey-7',  # no label
+    'stays_on': 'green-8',  # same channels assigned in the next cue
+    'muted_next': 'grey-7',  # on in this cue, muted (no channels) in the next cue
+    'changed': 'orange-8',  # channels change in the next cue, or assigned there from empty
 }
 
 # Cue.colour is an index into this list (0 = no tint). The TheatreMix app's own
@@ -45,16 +44,21 @@ def dca_cell(cue, dca: int) -> tuple[str, str]:
     return label, channels
 
 
-def cell_state(prev: tuple, cur: tuple) -> str:
-    """Grid state of a DCA cell: compares (label, channels) with the previous cue's cell.
+def cell_state(cur: tuple, nxt: tuple | None) -> str:
+    """Grid state of a DCA cell, from (label, channels) of this cue and the next cue.
 
-    Returns one of the keys of COLORS: 'cleared', 'empty', 'new' or 'same'.
+    Returns a key of COLORS, or '' for no tint. A cell counts as on when it has channels.
+    nxt is None on the last cue, which has no next cue to compare with.
     """
-    prev = tuple(x or '' for x in prev)
-    cur = tuple(x or '' for x in cur)
-    if not any(cur):
-        return 'cleared' if any(prev) else 'empty'
-    return 'same' if cur == prev else 'new'
+    if nxt is None:
+        return ''
+    channels = cur[1] or ''
+    next_channels = nxt[1] or ''
+    if channels == next_channels:
+        return 'stays_on' if channels else ''
+    if channels and not next_channels:
+        return 'muted_next'
+    return 'changed'
 
 
 def row_colour(index: int | None) -> str:

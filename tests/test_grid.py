@@ -16,7 +16,7 @@ def test_columns_follow_dca_list():
     assert [c['name'] for c in cols] == ['cue', 'name', 'dca1', 'dca3']
 
 
-def test_rows_compare_each_dca_with_previous_cue():
+def test_rows_compare_each_dca_with_next_cue():
     cues = [
         _cue(1, name='Foreman', dca01Label='Foreman', dca01Channels='1'),
         _cue(2, name='Judge', dca01Label='Foreman', dca01Channels='1', dca02Label='Judge', dca02Channels='2'),
@@ -24,11 +24,24 @@ def test_rows_compare_each_dca_with_previous_cue():
     ]
     rows = grid_rows(cues, [1, 2])
     assert [r['id'] for r in rows] == ['1.0', '2.0', '3.0']
-    assert rows[0]['dca1'] == {'label': 'Foreman', 'channels': '1', 'cls': 'text-green-4'}
-    assert rows[0]['dca2']['cls'] == 'text-grey-7'  # empty
-    assert rows[1]['dca1']['cls'] == 'text-white'  # unchanged
-    assert rows[1]['dca2']['cls'] == 'text-green-4'  # new
-    assert rows[2]['dca2']['cls'] == 'text-red-4'  # cleared
+    assert rows[0]['dca1'] == {'label': 'Foreman', 'channels': '1', 'cls': 'bg-green-8'}  # stays on in cue 2
+    assert rows[0]['dca2']['cls'] == 'bg-orange-8'  # assigned from empty in cue 2
+    assert rows[1]['dca1']['cls'] == 'bg-grey-7'  # muted in cue 3
+    assert rows[1]['dca2']['cls'] == 'bg-grey-7'  # muted in cue 3
+    assert rows[2]['dca2']['cls'] == ''  # last cue has no next cue
+
+
+def test_channel_change_and_new_assignment_are_orange():
+    rows = grid_rows([_cue(1, dca01Label='A', dca01Channels='1'), _cue(2, dca01Label='A', dca01Channels='2'),
+                      _cue(3, dca01Label='B', dca01Channels='5')], [1])
+    assert rows[0]['dca1']['cls'] == 'bg-orange-8'  # channels change
+    assert rows[1]['dca1']['cls'] == 'bg-orange-8'  # assigned from empty
+    assert rows[2]['dca1']['cls'] == ''  # last cue
+
+
+def test_empty_dca_cell_gets_row_tint():
+    rows = grid_rows([_cue(5, colour=1)], [1])
+    assert rows[0]['dca1']['cls'] == 'bg-red-10'
 
 
 def test_cue_label_and_row_tint():
@@ -74,5 +87,5 @@ def test_script_previews_follow_grid_state_and_skip_non_mix():
           {'id': 14, 'number': '9', 'point': 0, 'layer': 'Mix'}]
     out = script_previews(tm, [1, 2], sr)
     assert set(out) == {10, 11}
-    assert out[10] == [{'text': '1 Judge', 'color': 'green-4', 'tooltip': 'DCA 1: ch 1'}]
-    assert [(c['text'], c['color']) for c in out[11]] == [('1 ✕', 'red-4'), ('2 Guard', 'green-4')]
+    assert out[10] == [{'text': '1 Judge', 'color': 'grey-7', 'tooltip': 'DCA 1: ch 1'}]  # muted in cue 2
+    assert out[11] == [{'text': '2 Guard', 'color': 'grey-9', 'tooltip': 'DCA 2: ch 13'}]  # last cue
