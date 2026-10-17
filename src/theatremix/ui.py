@@ -80,7 +80,9 @@ def script_previews(tm_cues, dcas: list[int], sr_cues: list[dict]) -> dict[int, 
                 continue
             state = theme.cell_state(cur, theme.dca_cell(nxt, d) if nxt else None)
             label, channels = cur
-            chip = {'text': f'{d} {label or channels}', 'color': theme.COLORS[state] if state else 'grey-9'}
+            # no state: same as the grid, the row tint or no tint (ShowRunner would otherwise fall back to grey-9)
+            colour = theme.COLORS[state] if state else (theme.row_colour(cue.colour) or 'transparent')
+            chip = {'text': f'{d} {label or channels}', 'color': colour}
             if channels:
                 chip['tooltip'] = f'DCA {d}: ch {channels}'
             chips.append(chip)

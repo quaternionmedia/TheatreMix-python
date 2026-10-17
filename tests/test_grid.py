@@ -25,18 +25,20 @@ def test_rows_compare_each_dca_with_next_cue():
     rows = grid_rows(cues, [1, 2])
     assert [r['id'] for r in rows] == ['1.0', '2.0', '3.0']
     assert rows[0]['dca1'] == {'label': 'Foreman', 'channels': '1', 'cls': 'bg-green-8'}  # stays on in cue 2
-    assert rows[0]['dca2']['cls'] == 'bg-orange-8'  # assigned from empty in cue 2
+    assert rows[0]['dca2']['cls'] == ''  # assigned from empty in cue 2: no tint
     assert rows[1]['dca1']['cls'] == 'bg-grey-7'  # muted in cue 3
     assert rows[1]['dca2']['cls'] == 'bg-grey-7'  # muted in cue 3
     assert rows[2]['dca2']['cls'] == ''  # last cue has no next cue
 
 
-def test_channel_change_and_new_assignment_are_orange():
+def test_channel_change_is_orange_but_new_assignment_is_not():
     rows = grid_rows([_cue(1, dca01Label='A', dca01Channels='1'), _cue(2, dca01Label='A', dca01Channels='2'),
                       _cue(3, dca01Label='B', dca01Channels='5')], [1])
-    assert rows[0]['dca1']['cls'] == 'bg-orange-8'  # channels change
-    assert rows[1]['dca1']['cls'] == 'bg-orange-8'  # assigned from empty
+    assert rows[0]['dca1']['cls'] == 'bg-orange-8'  # channels 1 -> 2 while on
+    assert rows[1]['dca1']['cls'] == 'bg-orange-8'  # channels 2 -> 5 while on
     assert rows[2]['dca1']['cls'] == ''  # last cue
+    rows = grid_rows([_cue(1), _cue(2, dca01Label='A', dca01Channels='1')], [1])
+    assert rows[0]['dca1']['cls'] == ''  # assigned from empty in the next cue: no tint
 
 
 def test_empty_dca_cell_gets_row_tint():
@@ -78,8 +80,8 @@ def test_script_previews_follow_grid_state_and_skip_non_mix():
 
     from theatremix.ui import script_previews
 
-    tm = [NS(number=1, point=0, dca01Label='Judge', dca01Channels='1', dca02Label=None, dca02Channels=None),
-          NS(number=2, point=0, dca01Label=None, dca01Channels=None, dca02Label='Guard', dca02Channels='13')]
+    tm = [NS(number=1, point=0, colour=None, dca01Label='Judge', dca01Channels='1', dca02Label=None, dca02Channels=None),
+          NS(number=2, point=0, colour=None, dca01Label=None, dca01Channels=None, dca02Label='Guard', dca02Channels='13')]
     sr = [{'id': 10, 'number': '1', 'point': 0, 'layer': 'Mix'},
           {'id': 11, 'number': '2', 'point': 0, 'layer': 'Mix'},
           {'id': 12, 'number': '2', 'point': 0, 'layer': 'Sound'},
@@ -88,4 +90,4 @@ def test_script_previews_follow_grid_state_and_skip_non_mix():
     out = script_previews(tm, [1, 2], sr)
     assert set(out) == {10, 11}
     assert out[10] == [{'text': '1 Judge', 'color': 'grey-7', 'tooltip': 'DCA 1: ch 1'}]  # muted in cue 2
-    assert out[11] == [{'text': '2 Guard', 'color': 'grey-9', 'tooltip': 'DCA 2: ch 13'}]  # last cue
+    assert out[11] == [{'text': '2 Guard', 'color': 'transparent', 'tooltip': 'DCA 2: ch 13'}]  # last cue: no tint, as in the grid

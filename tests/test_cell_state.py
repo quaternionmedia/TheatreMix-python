@@ -13,9 +13,9 @@ from theatremix.models import Cue
         (('Judge', '3'), ('Guard', '3'), 'stays_on'),  # channels unchanged, label changed
         (('Judge', '3'), ('', ''), 'muted_next'),  # muted in the next cue
         (('Judge', '3'), ('Judge', None), 'muted_next'),
-        (('Judge', '3'), ('Judge', '4'), 'changed'),  # channels change
+        (('Judge', '3'), ('Judge', '4'), 'changed'),  # channels change while on
         (('Judge', '3'), None, ''),  # last cue: no next cue
-        (('', ''), ('Judge', '3'), 'changed'),  # assigned in the next cue from empty
+        (('', ''), ('Judge', '3'), ''),  # assigned in the next cue from empty: no tint
         (('', ''), ('', ''), ''),
         (('Judge', ''), ('Judge', ''), ''),  # label only, no channels
         ((None, None), (None, None), ''),

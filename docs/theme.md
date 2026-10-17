@@ -11,7 +11,7 @@ cell background. A DCA counts as on when its cell has channels.
 |---|---|---|
 | green | the same channels stay assigned in the next cue | `stays_on` = `green-8` |
 | grey | the DCA is on now and muted (no channels) in the next cue | `muted_next` = `grey-7` |
-| orange | channels change in the next cue, or the DCA is assigned there from empty | `changed` = `orange-8` |
+| orange | the DCA is on now and gets different channels in the next cue | `changed` = `orange-8` |
 | none | the cell is empty and stays empty, or it is the last cue | no tint |
 
 Row tint comes from `Cue.colour`, an index into `ROW_COLOURS` (0 = no tint). A row tint

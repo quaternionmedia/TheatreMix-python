@@ -11,7 +11,7 @@ from __future__ import annotations
 COLORS: dict[str, str] = {
     'stays_on': 'green-8',  # same channels assigned in the next cue
     'muted_next': 'grey-7',  # on in this cue, muted (no channels) in the next cue
-    'changed': 'orange-8',  # channels change in the next cue, or assigned there from empty
+    'changed': 'orange-8',  # channels on now and different in the next cue
 }
 
 # Cue.colour is an index into this list (0 = no tint). The TheatreMix app's own
@@ -54,9 +54,11 @@ def cell_state(cur: tuple, nxt: tuple | None) -> str:
         return ''
     channels = cur[1] or ''
     next_channels = nxt[1] or ''
+    if not channels:
+        return ''
     if channels == next_channels:
-        return 'stays_on' if channels else ''
-    if channels and not next_channels:
+        return 'stays_on'
+    if not next_channels:
         return 'muted_next'
     return 'changed'
 
