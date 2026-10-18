@@ -7,6 +7,8 @@ Sub pages for profiles, ensembles and actors go under /theatremix/edit/.
 
 from __future__ import annotations
 
+import csv
+import io
 import re
 from collections import deque
 
@@ -15,6 +17,7 @@ from fastapi import HTTPException
 from . import showrunner as tm
 from . import theme
 from .models import Actor, Ensemble, Profile
+from .script import get_characters, tm_name
 
 UNDO_LEVELS = 50
 # Shared by every client: the .tmix file is shared, so undo is too.
@@ -122,6 +125,34 @@ def parse_channels(text: str) -> str | None:
 
 
 # Sub pages under /theatremix/edit/: (title, model, [(attribute, label, kind)]); kind is int, str or bool.
+def _whole(row: dict, key: str) -> int | None:
+    value = row.get(key, '')
+    if not value:
+        return None
+    if not value.isdigit():
+        raise ValueError(f"'{key}' must be a whole number: {value!r}")
+    return int(value)
+
+
+def parse_actor_csv(text: str) -> list[dict]:
+    """Actor rows from CSV text. 'name' is required; channel and order are whole numbers; active is yes/no."""
+    reader = csv.DictReader(io.StringIO(text))
+    if 'name' not in [(h or '').strip().lower() for h in (reader.fieldnames or [])]:
+        raise ValueError("CSV needs a 'name' column")
+    rows = []
+    for raw in reader:
+        row = {k.strip().lower(): (v or '').strip() for k, v in raw.items() if k}
+        if not row.get('name'):
+            continue
+        rows.append({
+            'name': row['name'],
+            'channel': _whole(row, 'channel'),
+            'order': _whole(row, 'order') or 0,
+            'active': int(row.get('active', '').lower() in ('1', 'yes', 'y', 'true', 'x')),
+        })
+    return rows
+
+
 SUB_PAGES = {
     'profiles': ('Profiles', Profile, [('channel', 'Channel', 'int'), ('name', 'Name', 'str'),
                                        ('label', 'Label', 'str'), ('default', 'Default', 'bool')]),
@@ -249,6 +280,17 @@ def register_pages() -> None:
                     ui.label(f'Cue {cue.number}.{cue.point} · DCA {d}').classes('text-h6')
                     label_in = ui.input('Label', value=getattr(cue, f'dca{d:02d}Label') or '')
                     chan_in = ui.input('Channels', value=getattr(cue, f'dca{d:02d}Channels') or '')
+                    profiles = {p.id: p for p in db.get_profiles() if p.name}
+                    current = next((pid for pid, p in profiles.items() if p.name == label_in.value), None)
+
+                    def pick(e) -> None:
+                        p = profiles.get(e.value)
+                        if p is not None:
+                            label_in.value = p.name
+                            chan_in.value = str(p.channel) if p.channel else ''
+
+                    ui.select({pid: f'{p.channel or "-"} {p.name}' for pid, p in profiles.items()},
+                              label='Profile', value=current, on_change=pick)
                     with ui.row():
                         ui.button('Clear', on_click=clear, color='red-4')
                         ui.button('Cancel', on_click=dlg.close)
@@ -393,79 +435,147 @@ def register_pages() -> None:
             gen_btn.on_click(open_generate)
             reload()
 
-        def crud_page(path: str, title: str, model, fields: list) -> None:
-            @ui.page(path)
-            def page():
-                ui.dark_mode(True)
-                header()
-                db = tm._db
-                with ui.column().classes('w-full max-w-full p-4 gap-4'):
-                    if db is None:
-                        ui.label('No TheatreMix database loaded.').classes('text-amber text-lg')
+    def crud_page(path: str, title: str, model, fields: list) -> None:
+        @ui.page(path)
+        def page():
+            ui.dark_mode(True)
+            header()
+            db = tm._db
+            with ui.column().classes('w-full max-w-full p-4 gap-4'):
+                if db is None:
+                    ui.label('No TheatreMix database loaded.').classes('text-amber text-lg')
+                    return
+                with ui.row().classes('w-full items-center gap-4'):
+                    ui.link('← DCA grid', '/theatremix')
+                    ui.label(title).classes('text-h5')
+                    lock = ui.switch('Unlock editing', value=False)
+                    add_btn = ui.button('Add', icon='add')
+                    add_btn.bind_visibility_from(lock, 'value')
+
+                async def import_script() -> None:
+                    scripts = await tm.list_scripts()
+                    if not scripts:
+                        ui.notify('No Fountain scripts in ShowRunner for this show', type='warning')
                         return
-                    with ui.row().classes('w-full items-center gap-4'):
-                        ui.link('← DCA grid', '/theatremix')
-                        ui.label(title).classes('text-h5')
-                        lock = ui.switch('Unlock editing', value=False)
-                        add_btn = ui.button('Add', icon='add')
-                        add_btn.bind_visibility_from(lock, 'value')
-                    table = ui.table(
-                        columns=[{'name': a, 'label': lbl, 'field': a, 'align': 'left'} for a, lbl, _ in fields],
-                        rows=[], row_key='id',
-                        pagination={'rowsPerPage': 0},
-                    ).classes('w-full')
-                    table.add_slot('body-cell', CRUD_CELL_TEMPLATE)
+                    with ui.dialog() as sdlg, ui.card():
+                        ui.label('Add characters from script').classes('text-h6')
+                        sel = ui.select({sc['id']: sc['title'] for sc in scripts}, label='Script',
+                                        value=scripts[0]['id'])
+                        overwrite = ui.checkbox('Overwrite existing profiles (clears their channel, label and default)')
 
-                    def reload():
-                        table.rows[:] = [
-                            {'id': r.id, **{a: _cell_text(k, getattr(r, a)) for a, _, k in fields}}
-                            for r in db.list_rows(model)
-                        ]
-                        table.update()
-
-                    def edit(row_id=None):
-                        if not lock.value:
-                            ui.notify('Unlock editing first', type='warning')
-                            return
-                        row = next((r for r in db.list_rows(model) if r.id == row_id), None) if row_id else None
-
-                        def save():
+                        def pick_names():
                             try:
-                                data = {a: _parse(k, inputs[a]) for a, _, k in fields}
-                            except ValueError:
-                                ui.notify('Channel and order must be whole numbers', type='negative')
+                                names = get_characters(tm._load_showrunner_script(sel.value))
+                            except HTTPException as e:
+                                ui.notify(str(e.detail), type='negative')
                                 return
-                            if row:
-                                db.update_row(model, row.id, **data)
+                            sdlg.close()
+                            with ui.dialog() as pdlg, ui.card():
+                                ui.label('Choose characters to add').classes('text-h6')
+                                boxes = {n: ui.checkbox(n, value=True) for n in names}
+
+                                def run():
+                                    chosen = [n for n, box in boxes.items() if box.value]
+                                    rows = [{'name': tm_name(n), 'channel': None, 'label': None, 'default': 1}
+                                            for n in chosen]
+                                    added, overwritten, skipped = db.add_named_rows(model, rows, overwrite.value)
+                                    pdlg.close()
+                                    ui.notify(f'Added {added} characters, {overwritten} overwritten, '
+                                              f'{skipped} already listed')
+                                    reload()
+
+                                with ui.row():
+                                    ui.button('Cancel', on_click=pdlg.close)
+                                    ui.button('Import selected', on_click=run)
+                            pdlg.open()
+
+                        with ui.row():
+                            ui.button('Cancel', on_click=sdlg.close)
+                            ui.button('Next', on_click=pick_names)
+                    sdlg.open()
+
+                async def import_csv() -> None:
+                    with ui.dialog() as cdlg, ui.card():
+                        ui.label('Import actors from CSV').classes('text-h6')
+                        ui.label('Columns: name (required), channel, order, active (yes/no).'
+                                 ).classes('text-grey')
+                        overwrite = ui.checkbox('Overwrite existing actors (blank cells clear the value)')
+
+                        async def handle(e) -> None:
+                            try:
+                                rows = parse_actor_csv(await e.file.text())
+                            except (ValueError, csv.Error) as err:
+                                ui.notify(str(err), type='negative')
+                                return
+                            added, overwritten, skipped = db.add_named_rows(model, rows, overwrite.value)
+                            cdlg.close()
+                            ui.notify(f'Imported {added} actors, {overwritten} overwritten, {skipped} already listed')
+                            reload()
+
+                        ui.upload(label='CSV file', auto_upload=True, on_upload=handle).props('accept=.csv')
+                    cdlg.open()
+
+                if model is Profile:
+                    ui.button('From script…', icon='movie', on_click=import_script).bind_visibility_from(lock, 'value')
+                if model is Actor:
+                    ui.button('Import CSV…', icon='upload', on_click=import_csv).bind_visibility_from(lock, 'value')
+                table = ui.table(
+                    columns=[{'name': a, 'label': lbl, 'field': a, 'align': 'left'} for a, lbl, _ in fields],
+                    rows=[], row_key='id',
+                    pagination={'rowsPerPage': 0},
+                ).classes('w-full')
+                table.add_slot('body-cell', CRUD_CELL_TEMPLATE)
+
+                def reload():
+                    table.rows[:] = [
+                        {'id': r.id, **{a: _cell_text(k, getattr(r, a)) for a, _, k in fields}}
+                        for r in db.list_rows(model)
+                    ]
+                    table.update()
+
+                def edit(row_id=None):
+                    if not lock.value:
+                        ui.notify('Unlock editing first', type='warning')
+                        return
+                    row = next((r for r in db.list_rows(model) if r.id == row_id), None) if row_id else None
+
+                    def save():
+                        try:
+                            data = {a: _parse(k, inputs[a]) for a, _, k in fields}
+                        except ValueError:
+                            ui.notify('Channel and order must be whole numbers', type='negative')
+                            return
+                        if row:
+                            db.update_row(model, row.id, **data)
+                        else:
+                            db.add_row(model, **data)
+                        dlg.close()
+                        reload()
+
+                    def delete():
+                        db.delete_row(model, row.id)
+                        dlg.close()
+                        reload()
+
+                    with ui.dialog() as dlg, ui.card():
+                        ui.label(title if row is None else f'{title} #{row.id}').classes('text-h6')
+                        inputs = {}
+                        for a, lbl, k in fields:
+                            val = getattr(row, a) if row else None
+                            if k == 'bool':
+                                inputs[a] = ui.switch(lbl, value=bool(val))
                             else:
-                                db.add_row(model, **data)
-                            dlg.close()
-                            reload()
+                                inputs[a] = ui.input(lbl, value=_cell_text(k, val))
+                        with ui.row():
+                            if row:
+                                ui.button('Delete', on_click=delete, color='red-4')
+                            ui.button('Cancel', on_click=dlg.close)
+                            ui.button('Save', on_click=save)
+                    dlg.open()
 
-                        def delete():
-                            db.delete_row(model, row.id)
-                            dlg.close()
-                            reload()
+                table.on('cell-click', lambda e: edit(e.args['id']))
+                add_btn.on_click(lambda: edit(None))
+                reload()
 
-                        with ui.dialog() as dlg, ui.card():
-                            ui.label(title if row is None else f'{title} #{row.id}').classes('text-h6')
-                            inputs = {}
-                            for a, lbl, k in fields:
-                                val = getattr(row, a) if row else None
-                                if k == 'bool':
-                                    inputs[a] = ui.switch(lbl, value=bool(val))
-                                else:
-                                    inputs[a] = ui.input(lbl, value=_cell_text(k, val))
-                            with ui.row():
-                                if row:
-                                    ui.button('Delete', on_click=delete, color='red-4')
-                                ui.button('Cancel', on_click=dlg.close)
-                                ui.button('Save', on_click=save)
-                        dlg.open()
-
-                    table.on('cell-click', lambda e: edit(e.args['id']))
-                    add_btn.on_click(lambda: edit(None))
-                    reload()
-
-        for key, (title, model, fields) in SUB_PAGES.items():
-            crud_page(f'/theatremix/edit/{key}', title, model, fields)
+    for key, (title, model, fields) in SUB_PAGES.items():
+        crud_page(f'/theatremix/edit/{key}', title, model, fields)

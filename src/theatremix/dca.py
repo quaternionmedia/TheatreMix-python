@@ -11,6 +11,7 @@ from .script import (
     get_character_channels,
     get_line_preview_start,
     get_line_preview_end,
+    tm_name,
 )
 
 
@@ -133,7 +134,7 @@ def generate_dca_cues(
                 # Apply all mute changes
                 for character in characters_to_mute:
                     dca_num = dca_assignments[character]
-                    channel = character_channels.get(character, '')
+                    channel = character_channels.get(tm_name(character), '')
 
                     # Update this DCA's state (mute/clear both channels and labels)
                     if channel:
@@ -246,7 +247,7 @@ def generate_dca_cues(
                 # Apply all unmute changes
                 for character in characters_to_unmute:
                     dca_num = dca_assignments[character]
-                    channel = character_channels.get(character)
+                    channel = character_channels.get(tm_name(character))
 
                     if channel:
                         setattr(cue, f'dca{dca_num:02d}Channels', channel)
@@ -261,7 +262,7 @@ def generate_dca_cues(
                 # Apply all mute changes
                 for character in characters_to_mute:
                     dca_num = dca_assignments[character]
-                    channel = character_channels.get(character, '')
+                    channel = character_channels.get(tm_name(character), '')
 
                     # Clear both channels and labels when muting
                     if channel:

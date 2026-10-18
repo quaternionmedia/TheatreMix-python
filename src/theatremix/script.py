@@ -68,10 +68,11 @@ def split_characters(characters: str) -> list[str]:
     """Clean and split character headings"""
     # Remove parenthesis
     characters = re.sub(r'\([^)]*\)', '', characters)
-    # split the characters by '&'
+    # joint speakers: 'BARNARDO/MARCELLUS', 'LAERTES,' and 'A & B' are separate characters
     # If it contains lowercase letters (e.g., "Dr. Seuss"), keep as is
     # Otherwise, title case each character name
-    return [c if re.search(r'[a-z]', c) else c.title() for c in characters.split(' & ')]
+    names = [c.strip() for c in re.split(r'\s*[&/,]\s*', characters)]
+    return [c if re.search(r'[a-z]', c) else c.title() for c in names if c]
 
 
 def speaks_within(book, character, n: int = 7, skip_first: bool = False) -> bool:
@@ -104,12 +105,19 @@ def speaks_within(book, character, n: int = 7, skip_first: bool = False) -> bool
     return False
 
 
+PROFILE_NAME_MAX = 12  # TheatreMix stores profile names in at most 12 characters
+
+
+def tm_name(name: str) -> str:
+    """The name TheatreMix stores for a character, so script names match the profile."""
+    return name[:PROFILE_NAME_MAX]
+
+
 def get_characters(script):
     characters = set()
     for element in script.elements:
         if element.type == ElementType.CHARACTER:
-            chars = split_characters(element.name)
-            for char in chars:
+            for char in split_characters(element.name):
                 characters.add(char.strip())
     characters = sorted(list(characters))
     return characters

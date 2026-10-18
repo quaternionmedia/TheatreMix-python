@@ -317,6 +317,32 @@ class TheatreMixDB:
                     setattr(row, key, value)
                 session.commit()
 
+    def add_named_rows(self, model, rows: List[dict], overwrite: bool = False) -> tuple[int, int, int]:
+        """Add rows by 'name'. Returns (added, overwritten, skipped).
+
+        A name already in the table is skipped, or with overwrite=True has the row's fields
+        set on the existing row (fields absent from the row are kept). A name repeated within
+        rows is skipped after its first row, or with overwrite=True applied in order.
+        """
+        with Session(self.engine) as session:
+            by_name = {r.name: r for r in session.execute(select(model)).scalars()}
+            added = overwritten = skipped = 0
+            for row in rows:
+                cur = by_name.get(row['name'])
+                if cur is None:
+                    cur = model(**row)
+                    session.add(cur)
+                    by_name[row['name']] = cur
+                    added += 1
+                elif overwrite:
+                    for key, value in row.items():
+                        setattr(cur, key, value)
+                    overwritten += 1
+                else:
+                    skipped += 1
+            session.commit()
+        return added, overwritten, skipped
+
     def delete_row(self, model, row_id: int):
         with Session(self.engine) as session:
             row = session.get(model, row_id)
