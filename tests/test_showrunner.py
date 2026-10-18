@@ -418,3 +418,38 @@ class TestCmdCuelists:
             assert 'error' in result
         finally:
             sr_mod._app = old
+
+
+class TestGenerateDestination:
+    """Generate writes to the chosen cue list and layer, remembers it, and moves old links."""
+
+    def _new_list(self, sr_db, name):
+        with sr_db.session() as s:
+            cl = SRCueList(show_id=1, name=name)
+            s.add(cl)
+            s.commit()
+            s.refresh(cl)
+            return cl.id
+
+    def _links(self, sr_db, list_id, layer):
+        with sr_db.session() as s:
+            return s.exec(select(SRCue).where(SRCue.cue_list_id == list_id, SRCue.layer == layer)).all()
+
+    def test_choice_is_used_remembered_and_old_links_removed(self, setup_plugin, sr_db, tmix_db):
+        first = plugin.showrunner_command(command_name='theatremix:generate-dca', script_id=1)
+        lights = self._new_list(sr_db, 'Lights')
+        r = plugin.showrunner_command(
+            command_name='theatremix:generate-dca', script_id=1, cue_list_id=lights, layer='Lights')
+        assert (r['cue_list_id'], r['layer']) == (lights, 'Lights')
+        assert len(self._links(sr_db, lights, 'Lights')) == r['cues_created']
+        assert self._links(sr_db, first['cue_list_id'], 'Mix') == []  # old destination cleaned up
+
+        again = plugin.showrunner_command(command_name='theatremix:generate-dca', script_id=1)
+        assert (again['cue_list_id'], again['layer']) == (lights, 'Lights')
+
+    def test_destination_options_lists_show_cue_lists_and_layers(self, setup_plugin, sr_db):
+        self._new_list(sr_db, 'Lights')
+        import theatremix.showrunner as sr_mod
+        opts = sr_mod.destination_options()
+        assert 'Lights' in opts['cue_lists'].values()
+        assert opts['layer'] == 'Mix' and 'Mix' in opts['layers']

@@ -47,19 +47,20 @@ def sync_links(
     cue_list_id: int,
     tm_cues: list[TMCue],
     renames: dict[tuple[int, int], tuple[int, int]] | None = None,
+    layer: str = LAYER,
 ) -> None:
-    """Make the linked 'Mix' cues in cue_list_id match tm_cues exactly.
+    """Make the linked cues on `layer` in cue_list_id match tm_cues exactly.
 
     renames maps old (number, point) to new, so a renumbered cue keeps its
     ShowRunner row (and script_line). Cues in the list that are not
-    'Mix'/'TheatreMix' are left alone.
+    TheatreMix links on `layer` are left alone.
     """
     existing = {
         _key(c.number, c.point): c
         for c in s.exec(
             select(SRCue).where(
                 SRCue.cue_list_id == cue_list_id,
-                SRCue.layer == LAYER,
+                SRCue.layer == layer,
                 SRCue.cue_type == CUE_TYPE,
             )
         ).all()
@@ -76,7 +77,7 @@ def sync_links(
 
     for seq, tm in enumerate(tm_cues):
         sr = existing.pop(_key(tm.number, tm.point), None) or SRCue(
-            cue_list_id=cue_list_id, layer=LAYER, cue_type=CUE_TYPE
+            cue_list_id=cue_list_id, layer=layer, cue_type=CUE_TYPE
         )
         sr.number, sr.point = str(tm.number), tm.point
         sr.name = tm.name

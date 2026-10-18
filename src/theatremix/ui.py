@@ -18,6 +18,7 @@ from . import showrunner as tm
 from . import theme
 from .models import Actor, Ensemble, Profile
 from .script import get_characters, tm_name
+from .sync import LAYER
 
 UNDO_LEVELS = 50
 # Shared by every client: the .tmix file is shared, so undo is too.
@@ -67,8 +68,8 @@ def grid_rows(cues, dcas: list[int]) -> list[dict]:
     return rows
 
 
-def script_previews(tm_cues, dcas: list[int], sr_cues: list[dict]) -> dict[int, list[dict]]:
-    """Preview chips for linked 'Mix' cues in the ShowRunner script viewer: {sr cue id: chips}.
+def script_previews(tm_cues, dcas: list[int], sr_cues: list[dict], layer: str = LAYER) -> dict[int, list[dict]]:
+    """Preview chips for linked cues on `layer` in the ShowRunner script viewer: {sr cue id: chips}.
 
     Chips use the grid's background colours (state vs the next .tmix cue). Empty DCAs are left out.
     """
@@ -93,7 +94,7 @@ def script_previews(tm_cues, dcas: list[int], sr_cues: list[dict]) -> dict[int, 
 
     out = {}
     for c in sr_cues:
-        if c.get('layer') != 'Mix':
+        if c.get('layer') != layer:
             continue
         try:
             key = (int(c['number']), c['point'])
@@ -382,17 +383,24 @@ def register_pages() -> None:
                 if not scripts:
                     ui.notify('No Fountain scripts in ShowRunner for this show', type='warning')
                     return
+                opts = tm.destination_options()
                 with ui.dialog() as gdlg, ui.card():
                     ui.label('Generate DCA cues from script').classes('text-h6')
                     script_sel = ui.select({sc['id']: sc['title'] for sc in scripts}, label='Script',
                                            value=scripts[0]['id'])
                     look = ui.number('Lookahead (dialogues)', value=7, precision=0, min=1)
+                    cue_list_sel = ui.select(opts['cue_lists'], label='ShowRunner cue list', value=opts['cue_list_id'])
+                    layer_sel = ui.select(opts['layers'], label='Layer', value=opts['layer'],
+                                          new_value_mode='add-unique')
 
                     def confirm():
                         with ui.dialog() as cdlg, ui.card():
                             ui.label(f'Replace all {len(db.get_all_cues())} cues in {db.db_path.name} '
                                      'with generated DCA cues?')
                             ui.label(f'A backup is written to {db.db_path.name}.bak first.').classes('text-grey')
+                            list_name = opts['cue_lists'].get(cue_list_sel.value, 'TheatreMix')
+                            ui.label(f'Linked cues go to "{list_name}", layer "{layer_sel.value or opts["layer"]}".'
+                                     ).classes('text-grey')
                             with ui.row():
                                 ui.button('Cancel', on_click=cdlg.close)
                                 ui.button('Replace', color='red-4', on_click=lambda: run(cdlg))
@@ -403,7 +411,8 @@ def register_pages() -> None:
                         gdlg.close()
                         snap = db.snapshot_cues()
                         try:
-                            report = tm._generate_dca(script_sel.value, int(look.value))
+                            report = tm._generate_dca(script_sel.value, int(look.value),
+                                                      cue_list_sel.value, layer_sel.value)
                         except HTTPException as e:
                             ui.notify(str(e.detail), type='negative')
                             return
@@ -412,7 +421,7 @@ def register_pages() -> None:
                         if report['cues_created']:
                             _undo_stack.append({'description': f'Generate from script {script_sel.value}',
                                                 'snapshot': snap, 'renames': None})
-                            ui.notify(f"Generated {report['cues_created']} cues")
+                            ui.notify(f"Generated {report['cues_created']} cues on layer {report['layer']}")
                         reload()
 
                     with ui.row():

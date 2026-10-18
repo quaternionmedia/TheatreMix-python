@@ -12,18 +12,20 @@ from sqlmodel import select as sr_select
 import showrunner
 
 from .db import TheatreMixDB
+import json
 import shutil
 
 from .dca import generate_dca_cues
 from .script import get_characters, open_script, parse_script
 from . import theme
-from .sync import get_or_create_cue_list, sync_links
+from .sync import LAYER, LIST_NAME, get_or_create_cue_list, sync_links
 
 router = APIRouter(prefix='/theatremix', tags=['TheatreMix'])
 
 _db: TheatreMixDB | None = None  # TheatreMix .tmix database
 _app: Any = None  # ShowRunner app instance (provides app.db, app.config)
 _config: dict = {}
+DEST_KEY = 'theatremix.destination'  # ShowRunner Config key: where linked cues go
 
 
 # ---------------------------------------------------------------------------
@@ -35,12 +37,14 @@ class GenerateDCARequest(BaseModel):
     script_id: int
     lookahead: int = 7
     cue_list_id: int | None = None
+    layer: str | None = None
 
 
 class GenerateDCAReport(BaseModel):
     script_title: str
     lookahead: int
     cue_list_id: int
+    layer: str | None = None
     cues_created: int
     cues: list[dict]
     errors: list[str]
@@ -176,12 +180,91 @@ async def list_characters(
 @router.post('/generate-dca', response_model=GenerateDCAReport)
 async def generate_dca(body: GenerateDCARequest):
     """Generate DCA cues from a ShowRunner script into the .tmix file and link them."""
-    return GenerateDCAReport(**_generate_dca(body.script_id, body.lookahead, body.cue_list_id))
+    return GenerateDCAReport(**_generate_dca(body.script_id, body.lookahead, body.cue_list_id, body.layer))
 
 
-def _generate_dca(script_id: int, lookahead: int = 7, cue_list_id: int | None = None) -> dict:
+def _stored_destination(s, show_id: int) -> tuple[int | None, str]:
+    """(cue list id, layer) saved for this show, read without writing. Layer defaults to 'Mix'."""
+    from showrunner.models import Config as SRConfig
+
+    row = s.exec(sr_select(SRConfig).where(SRConfig.show_id == show_id, SRConfig.key == DEST_KEY)).first()
+    stored = json.loads(row.value) if row and row.value else {}
+    return stored.get('cue_list_id'), stored.get('layer') or LAYER
+
+
+def _destination(s, show_id: int, create: bool = True) -> tuple[int | None, str]:
+    """(cue list id, layer) that linked cues use.
+
+    Falls back to the show's 'TheatreMix' list when the saved one is gone. With
+    create=False no list is made, and the id is None when there is none to use.
+    """
+    from showrunner.models import CueList as SRCueList
+
+    list_id, layer = _stored_destination(s, show_id)
+    cue_list = s.get(SRCueList, list_id) if list_id else None
+    if cue_list is None or cue_list.show_id != show_id:
+        if create:
+            return get_or_create_cue_list(s, show_id).id, layer
+        cue_list = s.exec(sr_select(SRCueList).where(
+            SRCueList.show_id == show_id, SRCueList.name == LIST_NAME)).first()
+    return (cue_list.id if cue_list else None), layer
+
+
+def _save_destination(s, show_id: int, cue_list_id: int, layer: str) -> None:
+    from showrunner.models import Config as SRConfig
+
+    row = s.exec(sr_select(SRConfig).where(SRConfig.show_id == show_id, SRConfig.key == DEST_KEY)).first()
+    row = row or SRConfig(show_id=show_id, key=DEST_KEY)
+    row.value = json.dumps({'cue_list_id': cue_list_id, 'layer': layer})
+    s.add(row)
+    s.commit()
+
+
+def _current_layer() -> str:
+    """The layer linked TheatreMix cues use. Plugin hooks call this, so it never writes."""
+    try:
+        sr_db = _get_showrunner_db()
+        show_id = _get_current_show_id()
+    except HTTPException:
+        return LAYER
+    with sr_db.session() as s:
+        return _stored_destination(s, show_id)[1]
+
+
+def _show_layer_names(s, show_id: int) -> list[str]:
+    """Layer names ShowRunner knows for the show. Older ShowRunner releases have no layers table."""
+    try:
+        from showrunner.models import Layer as SRLayer
+    except ImportError:
+        return []
+    return list(s.exec(sr_select(SRLayer.name).where(SRLayer.show_id == show_id)).all())
+
+
+def destination_options() -> dict:
+    """Choices for the Generate dialog: the show's cue lists and layers, and the current destination."""
+    from showrunner.models import CueList as SRCueList
+
+    sr_db = _get_showrunner_db()
+    show_id = _get_current_show_id()
+    with sr_db.session() as s:
+        lists = s.exec(sr_select(SRCueList).where(SRCueList.show_id == show_id).order_by(SRCueList.id)).all()
+        layer_names = _show_layer_names(s, show_id)
+        list_id, layer = _destination(s, show_id, create=False)
+    return {
+        'cue_lists': {cl.id: cl.name for cl in lists},
+        'cue_list_id': list_id,
+        'layers': sorted(set(layer_names) | {layer}),
+        'layer': layer,
+    }
+
+
+def _generate_dca(
+    script_id: int, lookahead: int = 7, cue_list_id: int | None = None, layer: str | None = None,
+) -> dict:
     """Replace the .tmix cues with generated DCA cues, then link them into ShowRunner.
 
+    cue_list_id and layer default to the show's saved destination. The choice is
+    saved, and the previous destination's links are removed.
     The .tmix is the source of truth, so it is backed up to <db>.bak before
     it is overwritten. The ShowRunner cue list is validated first, so a bad
     cue_list_id leaves the .tmix alone. Raises HTTPException on bad input.
@@ -192,6 +275,7 @@ def _generate_dca(script_id: int, lookahead: int = 7, cue_list_id: int | None = 
         raise HTTPException(status_code=503, detail='TheatreMix database not loaded')
     sr_db = _get_showrunner_db()
     show_id = _get_current_show_id()
+    layer = (layer or '').strip() or None
     if cue_list_id is not None:
         with sr_db.session() as s:
             if s.get(SRCueList, cue_list_id) is None:
@@ -215,17 +299,21 @@ def _generate_dca(script_id: int, lookahead: int = 7, cue_list_id: int | None = 
     _db.replace_cues(dca_cues)
 
     with sr_db.session() as s:
-        if cue_list_id is None:
-            cue_list = get_or_create_cue_list(s, show_id)
-        else:
-            cue_list = s.get(SRCueList, cue_list_id)
-        sync_links(s, cue_list.id, dca_cues)
-        resolved_id = cue_list.id
+        old_list, old_layer = _destination(s, show_id, create=False)
+        new_list = cue_list_id if cue_list_id is not None else old_list
+        if new_list is None:
+            new_list = get_or_create_cue_list(s, show_id).id
+        new_layer = layer or old_layer
+        if old_list is not None and (old_list, old_layer) != (new_list, new_layer):
+            sync_links(s, old_list, [], layer=old_layer)
+        sync_links(s, new_list, dca_cues, layer=new_layer)
+        _save_destination(s, show_id, new_list, new_layer)
 
     return {
         'script_title': script_title,
         'lookahead': lookahead,
-        'cue_list_id': resolved_id,
+        'cue_list_id': new_list,
+        'layer': new_layer,
         'cues_created': len(dca_cues),
         'cues': [
             {'number': c.number, 'point': c.point, 'name': c.name, 'notes': _format_dca_notes(c)}
@@ -236,12 +324,12 @@ def _generate_dca(script_id: int, lookahead: int = 7, cue_list_id: int | None = 
 
 
 def _sync_links(renames: dict | None = None) -> None:
-    """Mirror the .tmix cue list into the show's linked 'Mix' cues (see sync.py)."""
+    """Mirror the .tmix cue list into the show's linked cues at the saved destination (see sync.py)."""
     sr_db = _get_showrunner_db()
     show_id = _get_current_show_id()
     with sr_db.session() as s:
-        cue_list = get_or_create_cue_list(s, show_id)
-        sync_links(s, cue_list.id, _db.get_all_cues(), renames)
+        list_id, layer = _destination(s, show_id)
+        sync_links(s, list_id, _db.get_all_cues(), renames, layer)
 
 
 def _load_showrunner_script(script_id: int):
@@ -415,18 +503,19 @@ class TheatreMixPlugin:
     @showrunner.hookimpl
     def showrunner_format_cue_number(self, number, point, layer):
         """TheatreMix cues read points in hundredths: 5.05, not 5.5."""
-        if layer != 'Mix':
+        if layer != _current_layer():
             return None
         return f'{number}.{point:02d}' if point else str(number)
 
     @showrunner.hookimpl
     def showrunner_script_previews(self, cues):
         """DCA assignment chips for linked Mix cues in the script viewer."""
-        if _db is None or not any(c.get('layer') == 'Mix' for c in cues):
+        layer = _current_layer()
+        if _db is None or not any(c.get('layer') == layer for c in cues):
             return None
         from .ui import script_previews
 
-        return script_previews(_db.get_all_cues(), _db.get_dca_numbers(), cues)
+        return script_previews(_db.get_all_cues(), _db.get_dca_numbers(), cues, layer)
 
     @showrunner.hookimpl
     def showrunner_get_nav(self):
@@ -516,12 +605,13 @@ class TheatreMixPlugin:
         script_id: int | None = None,
         lookahead: int = 7,
         cue_list_id: int | None = None,
+        layer: str | None = None,
         **_kwargs,
     ):
         if script_id is None:
             return {'error': 'script_id is required'}
         try:
-            return _generate_dca(script_id, lookahead, cue_list_id)
+            return _generate_dca(script_id, lookahead, cue_list_id, layer)
         except HTTPException as e:
             return {'error': e.detail}
 
