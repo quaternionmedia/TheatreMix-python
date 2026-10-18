@@ -57,11 +57,26 @@ def test_get_dca_numbers_from_config(db):
     assert db.get_dca_numbers() == [1, 2, 3]
 
 
-def test_copy_cue_adds_point_under_same_number(db):
-    new_point = db.copy_cue(2, 0)  # fixture has 2.0 and 2.10, so max+10
-    assert new_point == 20
-    assert db.get_cue(2, 20).name == 'Beta'
+def test_copy_cue_goes_halfway_to_next_cue(db):
+    assert db.copy_cue(2, 0) == (2, 5)  # 2.00 and 2.10 -> 2.05
+    assert db.get_cue(2, 5).name == 'Beta'
     assert db.get_cue(2, 0).name == 'Beta'
+
+
+def test_copy_cue_between_whole_numbers_uses_point_fifty(db):
+    assert db.copy_cue(1, 0) == (1, 50)  # 1.00 and 2.00 -> 1.50
+    assert db.get_cue(1, 50).name == 'Alpha'
+
+
+def test_copy_cue_refuses_last_cue_and_full_gaps(db):
+    with pytest.raises(ValueError, match='no cue after'):
+        db.copy_cue(2, 10)
+    db.add_cue('Delta', number=3, point=0)
+    db.add_cue('Epsilon', number=3, point=1)
+    with pytest.raises(ValueError, match='No room between 3.0 and 3.1'):
+        db.copy_cue(3, 0)
+    assert db.get_cue(3, 0).name == 'Delta'
+    assert len(db.get_all_cues()) == 5
 
 
 def test_snapshot_restore_round_trip(db):

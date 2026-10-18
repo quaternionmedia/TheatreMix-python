@@ -38,8 +38,8 @@ CELL_TEMPLATE = """
 
 
 def _cue_label(cue) -> str:
-    """Cue number with point, e.g. '5' or '5.10'."""
-    return f'{cue.number}.{cue.point}' if cue.point else f'{cue.number}'
+    """Cue number with point in hundredths, e.g. '5', '5.10' or '5.05'."""
+    return f'{cue.number}.{cue.point:02d}' if cue.point else f'{cue.number}'
 
 
 def grid_rows(cues, dcas: list[int]) -> list[dict]:
@@ -335,9 +335,14 @@ def register_pages() -> None:
                     refresh()
 
                 def duplicate():
+                    try:
+                        db.copy_target(cue.number, cue.point)
+                    except ValueError as e:
+                        ui.notify(str(e), type='negative')
+                        return
                     checkpoint(f'Duplicate cue {cue.number}.{cue.point}')
-                    new_point = db.copy_cue(cue.number, cue.point)
-                    ui.notify(f'Copied to {cue.number}.{new_point}')
+                    new_number, new_point = db.copy_cue(cue.number, cue.point)
+                    ui.notify(f'Copied to {new_number}.{new_point}')
                     dlg.close()
                     refresh()
 

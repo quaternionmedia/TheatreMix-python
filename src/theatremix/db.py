@@ -251,20 +251,39 @@ class TheatreMixDB:
                 cue.number, cue.point = new_number, new_point
                 session.commit()
 
-    def copy_cue(self, number: int, point: int) -> int:
-        """Duplicate a cue as a new point under the same number. Returns the new point."""
+    def copy_target(self, number: int, point: int) -> tuple[int, int]:
+        """Key for a copy of a cue, halfway to the next cue in order.
+
+        Cue numbers are read in hundredths: point 50 is .50, so 5.0 and 6.0 give 5.50.
+        Raises ValueError if the cue is missing, has no cue after it, points are outside
+        0-99, or no whole hundredth lies between the two cues.
+        """
+        with Session(self.engine) as session:
+            keys = [(c.number, c.point) for c in session.execute(
+                select(Cue).order_by(Cue.number, Cue.point)).scalars()]
+        if (number, point) not in keys:
+            raise ValueError(f'Cue {number}.{point} not found')
+        i = keys.index((number, point))
+        if i + 1 == len(keys):
+            raise ValueError(f'Cue {number}.{point} has no cue after it to copy towards')
+        nxt = keys[i + 1]
+        if not all(0 <= p < 100 for p in (point, nxt[1])):
+            raise ValueError('Points must be 0-99 to place a copy between cues')
+        lo, hi = number * 100 + point, nxt[0] * 100 + nxt[1]
+        if hi - lo < 2:
+            raise ValueError(f'No room between {number}.{point} and {nxt[0]}.{nxt[1]}')
+        return divmod((lo + hi) // 2, 100)
+
+    def copy_cue(self, number: int, point: int) -> tuple[int, int]:
+        """Duplicate a cue halfway to the next cue (see copy_target). Returns the new (number, point)."""
+        new_number, new_point = self.copy_target(number, point)
         with Session(self.engine) as session:
             src = session.get(Cue, (number, point))
-            if src is None:
-                raise ValueError(f'Cue {number}.{point} not found')
-            top = session.execute(
-                select(func.max(Cue.point)).where(Cue.number == number)
-            ).scalar()
             data = {c.key: getattr(src, c.key) for c in Cue.__table__.columns}
-            data['point'] = top + 10
+            data['number'], data['point'] = new_number, new_point
             session.add(Cue(**data))
             session.commit()
-            return data['point']
+        return new_number, new_point
 
     def snapshot_cues(self) -> List[dict]:
         """Plain-dict copy of every cue column, for undo."""

@@ -91,3 +91,11 @@ def test_script_previews_follow_grid_state_and_skip_non_mix():
     assert set(out) == {10, 11}
     assert out[10] == [{'text': '1 Judge', 'color': 'grey-7', 'tooltip': 'DCA 1: ch 1'}]  # muted in cue 2
     assert out[11] == [{'text': '2 Guard', 'color': 'transparent', 'tooltip': 'DCA 2: ch 13'}]  # last cue: no tint, as in the grid
+
+
+def test_format_cue_number_hook_applies_to_mix_cues_only():
+    from theatremix.showrunner import TheatreMixPlugin
+    plugin = TheatreMixPlugin()
+    assert plugin.showrunner_format_cue_number(number='5', point=5, layer='Mix') == '5.05'
+    assert plugin.showrunner_format_cue_number(number='5', point=0, layer='Mix') == '5'
+    assert plugin.showrunner_format_cue_number(number='5', point=1, layer='Sound') is None

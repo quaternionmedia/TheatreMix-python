@@ -413,6 +413,13 @@ class TheatreMixPlugin:
                     _db = _open_database(str(path))
 
     @showrunner.hookimpl
+    def showrunner_format_cue_number(self, number, point, layer):
+        """TheatreMix cues read points in hundredths: 5.05, not 5.5."""
+        if layer != 'Mix':
+            return None
+        return f'{number}.{point:02d}' if point else str(number)
+
+    @showrunner.hookimpl
     def showrunner_script_previews(self, cues):
         """DCA assignment chips for linked Mix cues in the script viewer."""
         if _db is None or not any(c.get('layer') == 'Mix' for c in cues):
