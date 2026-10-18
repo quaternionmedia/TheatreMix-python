@@ -100,3 +100,67 @@ def test_long_names_are_stored_truncated(db):
     from theatremix.script import tm_name
     assert db.add_named_rows(Profile, [{'name': tm_name('Mrs Bennet Senior'), 'channel': None}]) == (1, 0, 0)
     assert [p.name for p in db.get_profiles()] == ['Mrs Bennet S']
+
+
+PATCH = '''Channel,Actor,Character,Order,Active
+1,Ann Lee,Alice,2,yes
+2,Bo Park,Bob (V.O.),,
+3,Ann Lee,Cassandra Bellweather,3,
+,Cy Dane,,1,y
+'''
+
+
+def test_patch_list_populates_actors_profiles_and_links(db):
+    from theatremix.models import ActorProfile
+    from theatremix.ui import parse_patch_csv
+
+    rows = parse_patch_csv(PATCH)
+    assert rows[1]['profile'] == 'Bob (V.O.)'[:12] and rows[2]['profile'] == 'Cassandra Be'
+    result = db.import_patch(rows)
+    assert result == {'actors': (3, 0, 1), 'profiles': (3, 0, 0), 'links': (3, 0)}
+
+    ann = next(a for a in db.list_rows(Actor) if a.name == 'Ann Lee')
+    assert (ann.channel, ann.order, ann.active) == (1, 2, 1)  # first row defines the actor
+    alice = db.get_profile_by_name('Alice')
+    assert alice.channel == 1
+    with db.engine.connect() as conn:
+        links = conn.exec_driver_sql('select actor, profile from actorProfiles').all()
+    assert len(links) == 3
+
+
+def test_patch_list_reimport_adds_nothing_and_overwrite_updates(db):
+    from theatremix.ui import parse_patch_csv
+
+    db.import_patch(parse_patch_csv(PATCH))
+    again = db.import_patch(parse_patch_csv(PATCH))
+    assert again['links'] == (0, 3) and again['profiles'] == (0, 0, 3)
+    changed = parse_patch_csv('Channel,Actor,Character\n9,Ann Lee,Alice\n')
+    db.import_patch(changed, overwrite=True)
+    assert db.get_profile_by_name('Alice').channel == 9
+
+
+def test_patch_list_needs_actor_and_character_columns():
+    from theatremix.ui import parse_patch_csv
+
+    with pytest.raises(ValueError, match="needs a 'character' column"):
+        parse_patch_csv('Channel,Actor\n1,Ann\n')
+
+
+def test_patch_channel_written_to_existing_rows(db):
+    from theatremix.ui import parse_patch_csv
+
+    db.add_row(Actor, name='Ann Lee')
+    db.add_row(Profile, name='Alice')
+    db.add_row(Profile, name='Bob', channel=7)
+    db.import_patch(parse_patch_csv('Channel,Actor,Character\n1,Ann Lee,Alice\n2,Ann Lee,Bob\n'))
+    assert next(a for a in db.list_rows(Actor) if a.name == 'Ann Lee').channel == 1
+    assert db.get_profile_by_name('Alice').channel == 1
+    assert db.get_profile_by_name('Bob').channel == 2  # patch channel written even without overwrite
+
+
+def test_csv_with_byte_order_mark_still_reads_channel():
+    from theatremix.ui import parse_actor_csv, parse_patch_csv
+
+    assert parse_patch_csv('\ufeff' + PATCH)[0]['channel'] == 1
+    assert parse_actor_csv('\ufeffName,Channel\nAnn,4\n') == [
+        {'name': 'Ann', 'channel': 4, 'order': 0, 'active': 0}]

@@ -135,21 +135,50 @@ def _whole(row: dict, key: str) -> int | None:
     return int(value)
 
 
+def _flag(row: dict, key: str) -> int:
+    return int(row.get(key, '').lower() in ('1', 'yes', 'y', 'true', 'x'))
+
+
+def _csv_rows(text: str, required: tuple[str, ...]) -> list[dict]:
+    """CSV rows with lowercased, stripped keys. Raises ValueError if a required header is missing."""
+    reader = csv.DictReader(io.StringIO(text.lstrip('\ufeff')))  # Excel's UTF-8 export starts with a BOM
+    heads = [(h or '').strip().lower() for h in (reader.fieldnames or [])]
+    missing = [c for c in required if c not in heads]
+    if missing:
+        raise ValueError(f"CSV needs a '{missing[0]}' column")
+    return [{k.strip().lower(): (v or '').strip() for k, v in raw.items() if k} for raw in reader]
+
+
 def parse_actor_csv(text: str) -> list[dict]:
     """Actor rows from CSV text. 'name' is required; channel and order are whole numbers; active is yes/no."""
-    reader = csv.DictReader(io.StringIO(text))
-    if 'name' not in [(h or '').strip().lower() for h in (reader.fieldnames or [])]:
-        raise ValueError("CSV needs a 'name' column")
     rows = []
-    for raw in reader:
-        row = {k.strip().lower(): (v or '').strip() for k, v in raw.items() if k}
+    for row in _csv_rows(text, ('name',)):
         if not row.get('name'):
             continue
         rows.append({
             'name': row['name'],
             'channel': _whole(row, 'channel'),
             'order': _whole(row, 'order') or 0,
-            'active': int(row.get('active', '').lower() in ('1', 'yes', 'y', 'true', 'x')),
+            'active': _flag(row, 'active'),
+        })
+    return rows
+
+
+def parse_patch_csv(text: str) -> list[dict]:
+    """Patch list rows: actor and character are required; channel, order and active (yes/no) are optional.
+
+    Rows with no actor are skipped. The profile name is the character name cut to TheatreMix's length.
+    """
+    rows = []
+    for row in _csv_rows(text, ('actor', 'character')):
+        if not row.get('actor'):
+            continue
+        rows.append({
+            'actor': row['actor'],
+            'profile': tm_name(row['character']) if row.get('character') else None,
+            'channel': _whole(row, 'channel'),
+            'order': _whole(row, 'order') or 0,
+            'active': _flag(row, 'active'),
         })
     return rows
 
@@ -508,6 +537,31 @@ def register_pages() -> None:
                             ui.button('Next', on_click=pick_names)
                     sdlg.open()
 
+                async def import_patch() -> None:
+                    with ui.dialog() as pdlg, ui.card():
+                        ui.label('Import patch list').classes('text-h6')
+                        ui.label('Columns: actor and character (required), channel, order, active (yes/no). '
+                                 'Adds the actors and character profiles, and links each actor to its character.'
+                                 ).classes('text-grey')
+                        overwrite = ui.checkbox('Overwrite existing actors and profiles (blank cells clear the value)')
+
+                        async def handle(e) -> None:
+                            try:
+                                rows = parse_patch_csv(await e.file.text())
+                            except (ValueError, csv.Error) as err:
+                                ui.notify(str(err), type='negative')
+                                return
+                            r = db.import_patch(rows, overwrite.value)
+                            pdlg.close()
+                            a, p, (linked, present) = r['actors'], r['profiles'], r['links']
+                            ui.notify(f'Actors: {a[0]} added, {a[1]} overwritten, {a[2]} listed. '
+                                      f'Profiles: {p[0]} added, {p[1]} overwritten, {p[2]} listed. '
+                                      f'Links: {linked} added, {present} already linked.')
+                            reload()
+
+                        ui.upload(label='Patch CSV file', auto_upload=True, on_upload=handle).props('accept=.csv')
+                    pdlg.open()
+
                 async def import_csv() -> None:
                     with ui.dialog() as cdlg, ui.card():
                         ui.label('Import actors from CSV').classes('text-h6')
@@ -533,6 +587,7 @@ def register_pages() -> None:
                     ui.button('From script…', icon='movie', on_click=import_script).bind_visibility_from(lock, 'value')
                 if model is Actor:
                     ui.button('Import CSV…', icon='upload', on_click=import_csv).bind_visibility_from(lock, 'value')
+                    ui.button('Import patch list…', icon='upload', on_click=import_patch).bind_visibility_from(lock, 'value')
                 table = ui.table(
                     columns=[{'name': a, 'label': lbl, 'field': a, 'align': 'left'} for a, lbl, _ in fields],
                     rows=[], row_key='id',

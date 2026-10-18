@@ -362,6 +362,45 @@ class TheatreMixDB:
             session.commit()
         return added, overwritten, skipped
 
+    def import_patch(self, rows: List[dict], overwrite: bool = False) -> dict:
+        """Patch list rows -> actors, profiles and the actor-profile links between them.
+
+        Rows have actor, profile (stored character name, may be None), channel, order, active.
+        Actors and profiles follow add_named_rows (name match; overwrite sets the row's fields).
+        A row with a profile links its actor to that profile; a repeat link is counted as present.
+        A patch channel is written to the matched actor or profile, even without overwrite; the
+        first row for a name in the batch sets its channel. A blank patch channel leaves it alone.
+        """
+        actors = self.add_named_rows(Actor, [
+            {'name': r['actor'], 'channel': r['channel'], 'order': r['order'], 'active': r['active']}
+            for r in rows], overwrite)
+        profiles = self.add_named_rows(Profile, [
+            {'name': r['profile'], 'channel': r['channel']} for r in rows if r['profile']], overwrite)
+        with Session(self.engine) as session:
+            actor_by_name = {a.name: a for a in session.execute(select(Actor)).scalars()}
+            profile_by_name = {p.name: p for p in session.execute(select(Profile)).scalars()}
+            linked = present = 0
+            seen_actors, seen_profiles = set(), set()
+            for r in rows:
+                actor = actor_by_name[r['actor']]
+                if r['channel'] is not None and r['actor'] not in seen_actors:
+                    actor.channel = r['channel']
+                seen_actors.add(r['actor'])
+                if not r['profile']:
+                    continue
+                profile = profile_by_name[r['profile']]
+                if r['channel'] is not None and r['profile'] not in seen_profiles:
+                    profile.channel = r['channel']
+                seen_profiles.add(r['profile'])
+                key = (actor.id, profile.id)
+                if session.get(ActorProfile, key) is None:
+                    session.add(ActorProfile(actor=key[0], profile=key[1]))
+                    linked += 1
+                else:
+                    present += 1
+            session.commit()
+        return {'actors': actors, 'profiles': profiles, 'links': (linked, present)}
+
     def delete_row(self, model, row_id: int):
         with Session(self.engine) as session:
             row = session.get(model, row_id)
