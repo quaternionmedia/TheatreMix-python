@@ -274,9 +274,20 @@ class TheatreMixDB:
             raise ValueError(f'No room between {number}.{point} and {nxt[0]}.{nxt[1]}')
         return divmod((lo + hi) // 2, 100)
 
-    def copy_cue(self, number: int, point: int) -> tuple[int, int]:
-        """Duplicate a cue halfway to the next cue (see copy_target). Returns the new (number, point)."""
-        new_number, new_point = self.copy_target(number, point)
+    def place_after(self, number: int, point: int) -> tuple[int, int]:
+        """Key for a new cue after (number, point): halfway to the next cue, or 10 hundredths on if it is last."""
+        with Session(self.engine) as session:
+            keys = [(c.number, c.point) for c in session.execute(
+                select(Cue).order_by(Cue.number, Cue.point)).scalars()]
+        if (number, point) not in keys:
+            raise ValueError(f'Cue {number}.{point} not found')
+        if keys[-1] == (number, point):
+            return divmod(number * 100 + point + 10, 100)
+        return self.copy_target(number, point)
+
+    def copy_cue(self, number: int, point: int, to: tuple[int, int] | None = None) -> tuple[int, int]:
+        """Duplicate a cue to `to`, or halfway to the next cue (see copy_target). Returns the new (number, point)."""
+        new_number, new_point = to or self.copy_target(number, point)
         with Session(self.engine) as session:
             src = session.get(Cue, (number, point))
             data = {c.key: getattr(src, c.key) for c in Cue.__table__.columns}

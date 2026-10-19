@@ -9,6 +9,7 @@
 - Sub pages under `/theatremix/edit/`: profiles, ensembles, actors.
 - Linked ShowRunner cues (`cue_type='TheatreMix'`) in a chosen cue list and layer (default `TheatreMix` list, layer `Mix`), set in the Generate dialog and saved per show; synced after every change.
 
+- Script viewer edits: creating, renaming, renumbering or deleting a Mix cue in ShowRunner's script viewer updates the .tmix file (needs the `showrunner_cue_changed` hook). A new cue copies the previous linked cue's DCA state, placed halfway after it (or 10 hundredths after if last). Limits: a new cue with no earlier linked cue is blank and goes to the end; undoing a delete re-creates the cue with the same rule, so its DCA data is not restored; a grid undo does not undo ShowRunner-side changes.
 - Script viewer: linked Mix cues show their DCA assignments (grid background colours) under the cue's line, and again at the top of each following page. Needs a ShowRunner with the `showrunner_script_previews` hook and `Mix` layer.
 
 ## Not built yet

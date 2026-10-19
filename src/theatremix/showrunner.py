@@ -18,7 +18,7 @@ import shutil
 from .dca import generate_dca_cues
 from .script import get_characters, open_script, parse_script
 from . import theme
-from .sync import LAYER, LAYER_TYPE, LIST_NAME, get_or_create_cue_list, sync_links
+from .sync import LAYER, LAYER_TYPE, LIST_NAME, get_or_create_cue_list, mirror_cue, sync_links
 
 router = APIRouter(prefix='/theatremix', tags=['TheatreMix'])
 
@@ -532,6 +532,21 @@ class TheatreMixPlugin:
         if layer != _current_layer():
             return None
         return f'{number}.{point:02d}' if point else str(number)
+
+    @showrunner.hookimpl
+    def showrunner_cue_changed(self, action, cue, before):
+        """Create, edit or delete the .tmix cue behind a ShowRunner cue on the destination layer."""
+        if _db is None:
+            return None
+        try:
+            sr_db, show_id = _get_showrunner_db(), _get_current_show_id()
+        except HTTPException:
+            return None
+        with sr_db.session() as s:
+            list_id, layer = _destination(s, show_id, create=False)
+            if layer in (cue['layer'], (before or {}).get('layer')):
+                _ensure_layer(s, show_id, layer)
+            return mirror_cue(s, _db, show_id, list_id, layer, action, cue, before)
 
     @showrunner.hookimpl
     def showrunner_script_previews(self, cues):
