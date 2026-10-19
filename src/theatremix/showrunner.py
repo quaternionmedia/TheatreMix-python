@@ -220,6 +220,17 @@ def _save_destination(s, show_id: int, cue_list_id: int, layer: str) -> None:
     s.commit()
 
 
+def _ensure_layer(s, show_id: int, name: str) -> None:
+    """Add `name` to ShowRunner's layers table if it is not there yet (no-op on ShowRunner without layers)."""
+    try:
+        from showrunner.layers import add_layer
+        from showrunner.models import Layer as SRLayer
+    except ImportError:
+        return
+    if s.exec(sr_select(SRLayer).where(SRLayer.show_id == show_id, SRLayer.name == name)).first() is None:
+        add_layer(s, show_id, name, 'generic', 'pink' if name == LAYER else 'grey')
+
+
 def _current_layer() -> str:
     """The layer linked TheatreMix cues use. Plugin hooks call this, so it never writes."""
     try:
@@ -306,6 +317,7 @@ def _generate_dca(
         new_layer = layer or old_layer
         if old_list is not None and (old_list, old_layer) != (new_list, new_layer):
             sync_links(s, old_list, [], layer=old_layer)
+        _ensure_layer(s, show_id, new_layer)
         sync_links(s, new_list, dca_cues, layer=new_layer)
         _save_destination(s, show_id, new_list, new_layer)
 
@@ -329,6 +341,7 @@ def _sync_links(renames: dict | None = None) -> None:
     show_id = _get_current_show_id()
     with sr_db.session() as s:
         list_id, layer = _destination(s, show_id)
+        _ensure_layer(s, show_id, layer)
         sync_links(s, list_id, _db.get_all_cues(), renames, layer)
 
 
