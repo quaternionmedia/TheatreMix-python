@@ -18,7 +18,7 @@ import shutil
 from .dca import generate_dca_cues
 from .script import get_characters, open_script, parse_script
 from . import theme
-from .sync import LAYER, LIST_NAME, get_or_create_cue_list, sync_links
+from .sync import LAYER, LAYER_TYPE, LIST_NAME, get_or_create_cue_list, sync_links
 
 router = APIRouter(prefix='/theatremix', tags=['TheatreMix'])
 
@@ -221,14 +221,22 @@ def _save_destination(s, show_id: int, cue_list_id: int, layer: str) -> None:
 
 
 def _ensure_layer(s, show_id: int, name: str) -> None:
-    """Add `name` to ShowRunner's layers table if it is not there yet (no-op on ShowRunner without layers)."""
+    """Add `name` to ShowRunner's layers table if missing (no-op on ShowRunner without layers).
+
+    The TheatreMix layer gets this plugin's type, and an existing one is switched to it.
+    """
     try:
-        from showrunner.layers import add_layer
+        from showrunner.layers import add_layer, update_layer
         from showrunner.models import Layer as SRLayer
     except ImportError:
         return
-    if s.exec(sr_select(SRLayer).where(SRLayer.show_id == show_id, SRLayer.name == name)).first() is None:
-        add_layer(s, show_id, name, 'generic', 'pink' if name == LAYER else 'grey')
+    pm = getattr(_app, 'pm', None)
+    row = s.exec(sr_select(SRLayer).where(SRLayer.show_id == show_id, SRLayer.name == name)).first()
+    if row is None:
+        add_layer(s, show_id, name, LAYER_TYPE if name == LAYER else 'generic',
+                  'pink' if name == LAYER else 'grey', pm)
+    elif name == LAYER and row.type != LAYER_TYPE:
+        update_layer(s, row, pm, type=LAYER_TYPE)
 
 
 def _current_layer() -> str:
@@ -512,6 +520,11 @@ class TheatreMixPlugin:
                 path = Path(new_db)
                 if path.is_file():
                     _db = _open_database(str(path))
+
+    @showrunner.hookimpl
+    def showrunner_get_layer_types(self):
+        """The 'TheatreMix' layer type, so the TheatreMix layer is not 'generic'."""
+        return {'type': LAYER_TYPE, 'label': 'TheatreMix', 'description': 'TheatreMix DCA cues', 'color': 'pink'}
 
     @showrunner.hookimpl
     def showrunner_format_cue_number(self, number, point, layer):

@@ -125,7 +125,20 @@ def mock_app(sr_db):
 
 
 @pytest.fixture
-def setup_plugin(mock_app, tmix_db):
+def layer_pm(mock_app):
+    """A real plugin manager with TheatreMix registered, so its layer type is known to ShowRunner."""
+    import pluggy
+    from showrunner.hookspecs import ShowRunnerSpec
+    import theatremix.showrunner as sr_mod
+    pm = pluggy.PluginManager('showrunner')
+    pm.add_hookspecs(ShowRunnerSpec)
+    pm.register(sr_mod.plugin)
+    mock_app.pm = pm
+    return pm
+
+
+@pytest.fixture
+def setup_plugin(mock_app, tmix_db, layer_pm):
     """Configure the plugin module globals for testing."""
     import theatremix.showrunner as sr_mod
 
@@ -453,3 +466,40 @@ class TestGenerateDestination:
         opts = sr_mod.destination_options()
         assert 'Lights' in opts['cue_lists'].values()
         assert opts['layer'] == 'Mix' and 'Mix' in opts['layers']
+
+
+class TestLayerRow:
+    """Generating onto a layer adds that layer to ShowRunner's layers table."""
+
+    pytestmark = pytest.mark.skipif(
+        not hasattr(__import__('showrunner.models', fromlist=['x']), 'Layer'),
+        reason='needs a ShowRunner with a layers table',
+    )
+
+    def test_generate_adds_missing_layer_row(self, setup_plugin, sr_db):
+        from showrunner.models import Layer as SRLayer
+        r = plugin.showrunner_command(command_name='theatremix:generate-dca', script_id=1, layer='Mix')
+        with sr_db.session() as s:
+            rows = s.exec(select(SRLayer).where(SRLayer.show_id == 1, SRLayer.name == 'Mix')).all()
+        assert len(rows) == 1 and rows[0].color == 'pink' and rows[0].type == 'TheatreMix'
+        assert r['layer'] == 'Mix'
+
+    def test_existing_mix_layer_switches_to_mix_type(self, setup_plugin, sr_db):
+        from showrunner.models import Layer as SRLayer
+        from showrunner.layers import add_layer
+        with sr_db.session() as s:
+            add_layer(s, 1, 'Mix', 'generic', 'pink')
+        plugin.showrunner_command(command_name='theatremix:generate-dca', script_id=1, layer='Mix')
+        with sr_db.session() as s:
+            assert s.exec(select(SRLayer).where(SRLayer.name == 'Mix')).one().type == 'TheatreMix'
+
+    def test_existing_layer_row_not_duplicated(self, setup_plugin, sr_db):
+        from showrunner.models import Layer as SRLayer
+        from showrunner.layers import add_layer
+        with sr_db.session() as s:
+            add_layer(s, 1, 'Lights', 'lights', 'orange')
+        plugin.showrunner_command(command_name='theatremix:generate-dca', script_id=1, layer='Lights')
+        plugin.showrunner_command(command_name='theatremix:generate-dca', script_id=1, layer='Lights')
+        with sr_db.session() as s:
+            rows = s.exec(select(SRLayer).where(SRLayer.show_id == 1, SRLayer.name == 'Lights')).all()
+        assert len(rows) == 1 and rows[0].color == 'orange'

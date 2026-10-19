@@ -14,6 +14,7 @@ from showrunner.models import Cue as SRCue, CueList as SRCueList
 from .models import Cue as TMCue
 
 LAYER = 'Mix'
+LAYER_TYPE = 'TheatreMix'  # ShowRunner layer type registered by this plugin
 CUE_TYPE = 'TheatreMix'
 LIST_NAME = 'TheatreMix'
 
