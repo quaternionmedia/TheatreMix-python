@@ -12,13 +12,13 @@ requires = ["uv_build>=0.9.5,<0.10.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
-dev = ["ipykernel>=7.1.0", "pytest>=9.0.2"]
+dev = ["ipykernel>=7.1.0", "pytest>=9.0.2", "typer>=0.27.3"]
 
 [project.entry-points.showrunner]
 theatremix = "theatremix.showrunner:plugin"
 
 [project.optional-dependencies]
-showrunner = ["screenplay-tools>=0.0.10", "showrunner>=0.2.0"]
+showrunner = ["screenplay-tools>=0.0.10", "showrunner>=0.5.2"]
 
 # [tool.uv.sources]
 # showrunner = { path = "../ShowRunner", editable = true }
