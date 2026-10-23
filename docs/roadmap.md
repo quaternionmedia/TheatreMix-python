@@ -1,0 +1,31 @@
+# TheatreMix roadmap
+
+## Built in v1
+- `/theatremix`: DCA grid (one row per cue, one column per DCA), colours by change.
+- Edit lock; DCA cell dialog; cue name, number, point and row colour; add, delete, duplicate.
+- Undo (full cue-list snapshot per change, last 50).
+- Channel tray (profiles and ensembles) that fills the open DCA dialog.
+- Generate DCA cues from a ShowRunner script (writes `<db>.bak` first, then replaces the `.tmix` cues).
+- Sub pages under `/theatremix/edit/`: profiles, ensembles, actors.
+- Linked ShowRunner cues (`cue_type='TheatreMix'`) in a chosen cue list and layer (default `TheatreMix` list, layer `Mix`), set in the Generate dialog and saved per show; synced after every change.
+
+- Script viewer edits: creating, renaming, renumbering or deleting a Mix cue in ShowRunner's script viewer updates the .tmix file (needs the `showrunner_cue_changed` hook). A new cue copies the previous linked cue's DCA state, placed halfway after it (or 10 hundredths after if last). Limits: a new cue with no earlier linked cue is blank and goes to the end; undoing a delete re-creates the cue with the same rule, so its DCA data is not restored; a grid undo does not undo ShowRunner-side changes.
+- Script viewer: linked Mix cues show their DCA assignments (grid background colours) under the cue's line, and again at the top of each following page. Needs a ShowRunner with the `showrunner_script_previews` hook and `Mix` layer.
+
+## Not built yet
+- Live console connection: active-cue highlight, channel level monitor, backup-mic status.
+- Position and FX columns.
+- `>` prefix to indent a name (UI helper).
+- Two-way sync: edits in ShowRunner's cues back to the `.tmix`.
+- Undo history menu (v1 has a single Undo button).
+- Row-size select in the grid.
+- Editing actor↔profile links (`actorProfiles`); v1 edits actors only.
+- Undo on the sub pages.
+
+## Known limits
+- Undo restores the whole cue list. Changes made in the TheatreMix app while ShowRunner is open are lost on undo.
+- Undo of a delete recreates the linked ShowRunner cue; its `script_line` link is not restored.
+- Changing the destination removes the links from the old list and layer. Undo restores the .tmix cues only, not those links.
+- Layer choices come from the show's ShowRunner layers; older ShowRunner releases without a layers table offer only `Mix`.
+- Editing the `.tmix` while the TheatreMix app has it open can collide.
+- The grid dialogs were checked only by rendering the pages (HTTP 200), not in a browser.

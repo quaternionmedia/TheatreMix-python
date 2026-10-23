@@ -17,7 +17,7 @@ class TestSplitCharacters:
         assert split_characters('ALICE & BOB') == ['Alice', 'Bob']
 
     def test_removes_parenthetical(self):
-        assert split_characters('ALICE (V.O.)') == ['Alice ']
+        assert split_characters('ALICE (V.O.)') == ['Alice']
 
     def test_preserves_lowercase_names(self):
         assert split_characters('Dr. Seuss') == ['Dr. Seuss']
@@ -127,3 +127,27 @@ class TestGetLinePreview:
         ]
         result = get_line_preview_end(action_elems)
         assert result is None
+
+
+def test_joint_speakers_list_individuals_only(parse):
+    script = parse(
+        """
+INT. ROOM - DAY
+
+BARNARDO/MARCELLUS
+Who's there?
+
+LAERTES,
+Hi.
+
+ROSENCRANTZ & GUILDENSTERN
+Hello.
+"""
+    )
+    assert get_characters(script) == ['Barnardo', 'Guildenstern', 'Laertes', 'Marcellus', 'Rosencrantz']
+
+
+class TestSplitJointSpeakers:
+    def test_slash_and_trailing_comma_split(self):
+        assert split_characters('BARNARDO/MARCELLUS') == ['Barnardo', 'Marcellus']
+        assert split_characters('LAERTES,') == ['Laertes']

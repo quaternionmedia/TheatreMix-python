@@ -125,7 +125,20 @@ def mock_app(sr_db):
 
 
 @pytest.fixture
-def setup_plugin(mock_app, tmix_db):
+def layer_pm(mock_app):
+    """A real plugin manager with TheatreMix registered, so its layer type is known to ShowRunner."""
+    import pluggy
+    from showrunner.hookspecs import ShowRunnerSpec
+    import theatremix.showrunner as sr_mod
+    pm = pluggy.PluginManager('showrunner')
+    pm.add_hookspecs(ShowRunnerSpec)
+    pm.register(sr_mod.plugin)
+    mock_app.pm = pm
+    return pm
+
+
+@pytest.fixture
+def setup_plugin(mock_app, tmix_db, layer_pm):
     """Configure the plugin module globals for testing."""
     import theatremix.showrunner as sr_mod
 
@@ -274,133 +287,79 @@ class TestPluginRegistration:
 
 
 class TestCmdGenerateDca:
-    def test_generates_cues_and_writes_to_cuelist(self, setup_plugin, sr_db):
+    def test_writes_tmix_and_links_cues(self, setup_plugin, sr_db, tmix_db):
         result = plugin.showrunner_command(
-            command_name='theatremix:generate-dca',
-            script_id=1,
-            lookahead=7,
-            layer='Sound',
+            command_name='theatremix:generate-dca', script_id=1, lookahead=7
         )
-        assert result is not None
         assert result['cues_created'] > 0
-        assert result['layer'] == 'Sound'
         assert result['script_title'] == 'Test Script'
-        assert 'cue_list_id' in result
 
-        # Verify cues were written to ShowRunner DB
+        # .tmix is the source of truth and is backed up first
+        assert len(tmix_db.get_all_cues()) == result['cues_created']
+        assert tmix_db.db_path.with_name('test.tmix.bak').exists()
+
+        # ShowRunner gets one linked 'Mix' cue per .tmix cue
         with sr_db.session() as s:
-            cues = s.exec(
+            links = s.exec(
                 select(SRCue).where(SRCue.cue_list_id == result['cue_list_id'])
             ).all()
-            assert len(cues) == result['cues_created']
-            assert all(c.layer == 'Sound' for c in cues)
-            assert all(c.cue_type == 'DCA' for c in cues)
-            assert all(c.script_line is not None for c in cues)
+        assert len(links) == result['cues_created']
+        assert all(c.layer == 'Mix' and c.cue_type == 'TheatreMix' for c in links)
+        assert all(c.script_line is not None for c in links)
 
-    def test_invalid_layer_returns_error(self, setup_plugin):
-        result = plugin.showrunner_command(
-            command_name='theatremix:generate-dca',
-            script_id=1,
-            layer='Invalid',
-        )
-        assert 'error' in result
-
-    def test_missing_script_id_returns_error(self, setup_plugin):
-        result = plugin.showrunner_command(
-            command_name='theatremix:generate-dca',
-            layer='Sound',
-        )
-        assert 'error' in result
-
-    def test_nonexistent_script_returns_error(self, setup_plugin):
-        result = plugin.showrunner_command(
-            command_name='theatremix:generate-dca',
-            script_id=999,
-            layer='Sound',
-        )
-        assert 'error' in result
-
-    def test_regenerate_appends_cues(self, setup_plugin, sr_db):
-        # Generate once
-        r1 = plugin.showrunner_command(
-            command_name='theatremix:generate-dca',
-            script_id=1,
-            lookahead=7,
-            layer='Sound',
-        )
-        cue_list_id = r1['cue_list_id']
-        count1 = r1['cues_created']
-
-        # Generate again — should reuse same cue list, append new cues
-        r2 = plugin.showrunner_command(
-            command_name='theatremix:generate-dca',
-            script_id=1,
-            lookahead=7,
-            layer='Sound',
-        )
-        assert r2['cue_list_id'] == cue_list_id
-
-        # Total cues should be sum of both runs
+    def test_regenerate_replaces_not_appends(self, setup_plugin, sr_db, tmix_db):
+        r1 = plugin.showrunner_command(command_name='theatremix:generate-dca', script_id=1)
+        r2 = plugin.showrunner_command(command_name='theatremix:generate-dca', script_id=1)
+        assert r2['cue_list_id'] == r1['cue_list_id']
+        assert len(tmix_db.get_all_cues()) == r2['cues_created']
         with sr_db.session() as s:
-            cues = s.exec(select(SRCue).where(SRCue.cue_list_id == cue_list_id)).all()
-            assert len(cues) == count1 + r2['cues_created']
-
-            # Second batch should have higher sequence numbers
-            sequences = sorted(c.sequence for c in cues)
-            assert sequences == list(range(count1 + r2['cues_created']))
-
-    def test_different_layers_get_separate_cuelists(self, setup_plugin, sr_db):
-        r_sound = plugin.showrunner_command(
-            command_name='theatremix:generate-dca',
-            script_id=1,
-            layer='Sound',
-        )
-        r_lights = plugin.showrunner_command(
-            command_name='theatremix:generate-dca',
-            script_id=1,
-            layer='Lights',
-        )
-        assert r_sound['cue_list_id'] != r_lights['cue_list_id']
+            links = s.exec(
+                select(SRCue).where(SRCue.cue_list_id == r1['cue_list_id'])
+            ).all()
+        assert len(links) == r2['cues_created']
 
     def test_generate_into_existing_cuelist(self, setup_plugin, sr_db):
-        # Create a cue list first
         with sr_db.session() as s:
-            cl = SRCueList(show_id=1, name='My Custom List')
+            cl = SRCueList(show_id=1, name='Main')
             s.add(cl)
             s.commit()
             s.refresh(cl)
             cl_id = cl.id
-
         result = plugin.showrunner_command(
-            command_name='theatremix:generate-dca',
-            script_id=1,
-            layer='Sound',
-            cue_list_id=cl_id,
+            command_name='theatremix:generate-dca', script_id=1, cue_list_id=cl_id
         )
         assert result['cue_list_id'] == cl_id
-        assert result['cues_created'] > 0
-
-        # Verify cues landed in the specified list
         with sr_db.session() as s:
-            cues = s.exec(select(SRCue).where(SRCue.cue_list_id == cl_id)).all()
-            assert len(cues) == result['cues_created']
+            links = s.exec(select(SRCue).where(SRCue.cue_list_id == cl_id)).all()
+        assert len(links) == result['cues_created']
 
-    def test_nonexistent_cuelist_returns_error(self, setup_plugin):
+    def test_nonexistent_cuelist_leaves_tmix_untouched(self, setup_plugin, tmix_db):
+        tmix_db.add_cue('Keep')
         result = plugin.showrunner_command(
-            command_name='theatremix:generate-dca',
-            script_id=1,
-            layer='Sound',
-            cue_list_id=999,
+            command_name='theatremix:generate-dca', script_id=1, cue_list_id=999
         )
-        assert 'error' in result
-        assert '999' in result['error']
+        assert result == {'error': 'Cue list 999 not found'}
+        assert [c.name for c in tmix_db.get_all_cues()] == ['Keep']
+
+    def test_missing_script_id_returns_error(self, setup_plugin):
+        result = plugin.showrunner_command(command_name='theatremix:generate-dca')
+        assert result == {'error': 'script_id is required'}
+
+    def test_nonexistent_script_returns_error(self, setup_plugin):
+        result = plugin.showrunner_command(
+            command_name='theatremix:generate-dca', script_id=999
+        )
+        assert result == {'error': 'Script 999 not found'}
+
+    def test_no_tmix_database_returns_error(self, setup_plugin):
+        import theatremix.showrunner as sr_mod
+
+        sr_mod._db = None
+        result = plugin.showrunner_command(command_name='theatremix:generate-dca', script_id=1)
+        assert result == {'error': 'TheatreMix database not loaded'}
 
 
 # ---------------------------------------------------------------------------
-# Tests: Command — scripts
-# ---------------------------------------------------------------------------
-
-
 class TestCmdScripts:
     def test_lists_only_fountain_scripts(self, setup_plugin):
         result = plugin.showrunner_command(command_name='theatremix:scripts')
@@ -472,3 +431,75 @@ class TestCmdCuelists:
             assert 'error' in result
         finally:
             sr_mod._app = old
+
+
+class TestGenerateDestination:
+    """Generate writes to the chosen cue list and layer, remembers it, and moves old links."""
+
+    def _new_list(self, sr_db, name):
+        with sr_db.session() as s:
+            cl = SRCueList(show_id=1, name=name)
+            s.add(cl)
+            s.commit()
+            s.refresh(cl)
+            return cl.id
+
+    def _links(self, sr_db, list_id, layer):
+        with sr_db.session() as s:
+            return s.exec(select(SRCue).where(SRCue.cue_list_id == list_id, SRCue.layer == layer)).all()
+
+    def test_choice_is_used_remembered_and_old_links_removed(self, setup_plugin, sr_db, tmix_db):
+        first = plugin.showrunner_command(command_name='theatremix:generate-dca', script_id=1)
+        lights = self._new_list(sr_db, 'Lights')
+        r = plugin.showrunner_command(
+            command_name='theatremix:generate-dca', script_id=1, cue_list_id=lights, layer='Lights')
+        assert (r['cue_list_id'], r['layer']) == (lights, 'Lights')
+        assert len(self._links(sr_db, lights, 'Lights')) == r['cues_created']
+        assert self._links(sr_db, first['cue_list_id'], 'Mix') == []  # old destination cleaned up
+
+        again = plugin.showrunner_command(command_name='theatremix:generate-dca', script_id=1)
+        assert (again['cue_list_id'], again['layer']) == (lights, 'Lights')
+
+    def test_destination_options_lists_show_cue_lists_and_layers(self, setup_plugin, sr_db):
+        self._new_list(sr_db, 'Lights')
+        import theatremix.showrunner as sr_mod
+        opts = sr_mod.destination_options()
+        assert 'Lights' in opts['cue_lists'].values()
+        assert opts['layer'] == 'Mix' and 'Mix' in opts['layers']
+
+
+class TestLayerRow:
+    """Generating onto a layer adds that layer to ShowRunner's layers table."""
+
+    pytestmark = pytest.mark.skipif(
+        not hasattr(__import__('showrunner.models', fromlist=['x']), 'Layer'),
+        reason='needs a ShowRunner with a layers table',
+    )
+
+    def test_generate_adds_missing_layer_row(self, setup_plugin, sr_db):
+        from showrunner.models import Layer as SRLayer
+        r = plugin.showrunner_command(command_name='theatremix:generate-dca', script_id=1, layer='Mix')
+        with sr_db.session() as s:
+            rows = s.exec(select(SRLayer).where(SRLayer.show_id == 1, SRLayer.name == 'Mix')).all()
+        assert len(rows) == 1 and rows[0].color == 'pink' and rows[0].type == 'TheatreMix'
+        assert r['layer'] == 'Mix'
+
+    def test_existing_mix_layer_switches_to_mix_type(self, setup_plugin, sr_db):
+        from showrunner.models import Layer as SRLayer
+        from showrunner.layers import add_layer
+        with sr_db.session() as s:
+            add_layer(s, 1, 'Mix', 'generic', 'pink')
+        plugin.showrunner_command(command_name='theatremix:generate-dca', script_id=1, layer='Mix')
+        with sr_db.session() as s:
+            assert s.exec(select(SRLayer).where(SRLayer.name == 'Mix')).one().type == 'TheatreMix'
+
+    def test_existing_layer_row_not_duplicated(self, setup_plugin, sr_db):
+        from showrunner.models import Layer as SRLayer
+        from showrunner.layers import add_layer
+        with sr_db.session() as s:
+            add_layer(s, 1, 'Lights', 'lights', 'orange')
+        plugin.showrunner_command(command_name='theatremix:generate-dca', script_id=1, layer='Lights')
+        plugin.showrunner_command(command_name='theatremix:generate-dca', script_id=1, layer='Lights')
+        with sr_db.session() as s:
+            rows = s.exec(select(SRLayer).where(SRLayer.show_id == 1, SRLayer.name == 'Lights')).all()
+        assert len(rows) == 1 and rows[0].color == 'orange'

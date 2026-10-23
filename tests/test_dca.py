@@ -153,3 +153,10 @@ class TestGenerateDcaCues:
         assert all(isinstance(c._script_line, int) for c in cues)
         # Each cue should reference a CHARACTER element index
         assert cues[0]._script_line < cues[-1]._script_line
+
+
+class TestLongCharacterNames:
+    def test_name_longer_than_twelve_matches_stored_profile(self, parse):
+        script = parse('INT. ROOM - DAY\n\nMRS BENNET SENIOR\nHello!\n')
+        cues = TestGenerateDcaCues()._generate(script, channels={'Mrs Bennet S': '4'})
+        assert TestGenerateDcaCues()._get_dca_info(cues[0])[1] == ('4', 'Mrs Bennet Senior')
