@@ -1,6 +1,6 @@
 [project]
 name = "theatremix"
-version = "0.2.0"
+version = "0.2.1"
 description = "TheatreMix functions for python"
 readme = "README.md"
 authors = [{ name = "Harpo", email = "harpo@harpo.me" }]
