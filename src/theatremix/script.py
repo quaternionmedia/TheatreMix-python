@@ -166,10 +166,12 @@ def get_character_channels(db_path: str = DATABASE) -> dict[str, str]:
         # Load characters from Profile table
         profiles = session.execute(select(Profile)).scalars().all()
         for profile in profiles:
-            character_channels[profile.name] = str(profile.channel)
+            if profile.channel is not None:  # a profile with no channel is not patched; str(None) would leak in
+                character_channels[profile.name] = str(profile.channel)
         # Load ensemble groups and map to comma-separated channel lists
         ensembles = session.execute(select(Ensemble)).scalars().all()
         for ensemble in ensembles:
-            character_channels[ensemble.name] = ensemble.channels
+            if ensemble.channels:
+                character_channels[ensemble.name] = ensemble.channels
 
     return character_channels

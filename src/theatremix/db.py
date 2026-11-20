@@ -384,7 +384,7 @@ class TheatreMixDB:
         """
         actors = self.add_named_rows(Actor, [
             {'name': r['actor'], 'channel': r['channel'], 'order': r['order'], 'active': r['active']}
-            for r in rows], overwrite)
+            for r in rows if r['actor']], overwrite)
         profiles = self.add_named_rows(Profile, [
             {'name': r['profile'], 'channel': r['channel']} for r in rows if r['profile']], overwrite)
         with Session(self.engine) as session:
@@ -393,16 +393,20 @@ class TheatreMixDB:
             linked = present = 0
             seen_actors, seen_profiles = set(), set()
             for r in rows:
-                actor = actor_by_name[r['actor']]
-                if r['channel'] is not None and r['actor'] not in seen_actors:
-                    actor.channel = r['channel']
-                seen_actors.add(r['actor'])
+                # Rows may have no actor (a profile-only row) or no profile (an actor-only row).
+                actor = actor_by_name[r['actor']] if r['actor'] else None
+                if actor is not None:
+                    if r['channel'] is not None and r['actor'] not in seen_actors:
+                        actor.channel = r['channel']
+                    seen_actors.add(r['actor'])
                 if not r['profile']:
                     continue
                 profile = profile_by_name[r['profile']]
                 if r['channel'] is not None and r['profile'] not in seen_profiles:
                     profile.channel = r['channel']
                 seen_profiles.add(r['profile'])
+                if actor is None:
+                    continue
                 key = (actor.id, profile.id)
                 if session.get(ActorProfile, key) is None:
                     session.add(ActorProfile(actor=key[0], profile=key[1]))
